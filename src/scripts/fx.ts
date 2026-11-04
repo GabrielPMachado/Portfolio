@@ -248,7 +248,7 @@ class Flock {
     cleanAtom(j.el);
     const n = (this.left.get(j.host) ?? 1) - 1;
     this.left.set(j.host, n);
-    if (n <= 0) { this.left.delete(j.host); markBuilt(j.host); }
+    if (n <= 0) { this.left.delete(j.host); markBuilt(j.host); runner.done(j.host); }
   }
 
   stop() {
@@ -357,7 +357,9 @@ class Flock {
 
     const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur }));
     live.forEach((L) => this.reveal(L));
-    this.jobs = live.filter(({ p }) => p < 1.2).map(({ j }) => j);
+    // keep jobs added while revealing (the next block starts the moment the current one ends)
+    const gone = new Set(live.filter(({ p }) => p >= 1.2).map(({ j }) => j));
+    this.jobs = this.jobs.filter((j) => !gone.has(j));
     const shown = live.filter((L) => L.p >= 0 && L.p < 1.2 && L.r.bottom > -40 && L.r.top < this.h + 40);
     // the long red guide on the left margin while anything is being built
     if (shown.some((L) => L.p < 1)) {
@@ -581,50 +583,64 @@ class Flock {
   }
 }
 
-/* ---------- runner: queue blocks as they enter the screen ---------- */
-const STAGGER = 260; // between blocks
+/* ---------- runner: one block at a time, in page order ---------- */
+// The flock never leaves a block half done: a block that enters the screen while another is
+// being built waits in line, and starts only when the current one is finished.
+const STAGGER = 260; // pause between one block and the next
 const PIECE = 110; // between the pieces of one block
 const runner = {
   flock: null as Flock | null,
   queue: [] as HTMLElement[],
+  current: null as HTMLElement | null,
   busy: false,
   intro: true,
-  lastStart: 0,
   /** Hand a block to the flock: each of its pieces becomes a job, one shortly after the other. */
   build(f: Flock, el: HTMLElement, start: number) {
     el.classList.add('is-revealing');
+    this.current = el;
     atoms(el).forEach((a, i) => f.addJob(a, el, start + i * PIECE));
-    this.lastStart = Math.max(this.lastStart, start);
   },
   push(el: HTMLElement) {
     if (el.classList.contains('is-built') || el.classList.contains('is-revealing') || this.queue.includes(el)) return;
-    const f = this.flock;
-    // The flock is already on screen: queue the new block right after the last one.
-    if (this.busy && f && (f.mode === 'build' || f.mode === 'wait' || f.mode === 'leave')) {
-      const now = performance.now();
-      const at = Math.max(now + 120, this.lastStart + STAGGER);
-      // Scrolling fast: don't keep content hidden behind a long line of blocks.
-      if (at - now > 2400) { markBuilt(el); return; }
-      this.build(f, el, at);
-      if (f.mode !== 'build') f.setMode('build');
-      return;
-    }
     this.queue.push(el);
+    // keep the line in page order, whatever order the blocks came into view
+    this.queue.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    if (this.current) return; // the current block finishes first
+    const f = this.flock;
+    if (this.busy && f && (f.mode === 'build' || f.mode === 'wait' || f.mode === 'leave')) { this.take(f, performance.now() + 120); return; }
     if (!this.busy) setTimeout(() => this.next(), 60);
+  },
+  /** Next block in line, skipping anything already shown or already scrolled past. */
+  pick() {
+    while (this.queue.length) {
+      const el = this.queue.shift()!;
+      if (el.classList.contains('is-built')) continue;
+      if (el.getBoundingClientRect().bottom < 0) { markBuilt(el); continue; }
+      return el;
+    }
+    return null;
+  },
+  take(f: Flock, start: number) {
+    const el = this.pick();
+    if (!el) return false;
+    this.build(f, el, start);
+    if (f.mode !== 'build' && f.mode !== 'orbit') f.setMode('build');
+    return true;
+  },
+  /** The flock finished a block: go straight to the next one in line. */
+  done(host: HTMLElement) {
+    if (host !== this.current) return;
+    this.current = null;
+    // (not while the flock is being stopped: then the line simply waits for next())
+    if (this.flock && this.flock.mode !== 'off' && fxOn()) this.take(this.flock, performance.now() + STAGGER);
   },
   next() {
     if (!fxOn()) return;
-    const batch = this.queue.splice(0).filter((el) => !el.classList.contains('is-built'));
-    if (!batch.length) { this.busy = false; return; }
-    this.busy = true;
+    if (this.current) return;
     const f = (this.flock ??= new Flock());
-    const now = performance.now();
-    const visible = batch.filter((el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-    batch.filter((el) => !visible.includes(el)).forEach((el) => markBuilt(el));
-    if (!visible.length) { this.next(); return; }
     const delay = this.intro ? 1500 : 150;
-    this.lastStart = 0;
-    visible.forEach((el, i) => this.build(f, el, now + delay + i * STAGGER));
+    if (!this.take(f, performance.now() + delay)) { this.busy = false; return; }
+    this.busy = true;
     if (this.intro) {
       // the opening: an empty page, a small loader, and the flock swirling around it
       this.intro = false;
@@ -645,6 +661,7 @@ function fxOn() {
 function finishAll() {
   document.querySelectorAll<HTMLElement>('[data-build]').forEach((el) => markBuilt(el, false));
   runner.queue = [];
+  runner.current = null;
   runner.busy = false;
   runner.flock?.stop();
   root.classList.remove('fx-run');
