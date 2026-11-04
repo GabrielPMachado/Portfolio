@@ -512,30 +512,34 @@ function start() {
   autoScroll();
 }
 
-/* ---------- auto tour: if the visitor stays still, walk them down the page ----------
- * After a few idle seconds (and once the cursors finished the current blocks) the page glides to the
- * next block that hasn't been built yet. Any wheel, touch, key or click pauses it; it stops at the end. */
+/* ---------- auto tour: if the visitor stays still, the page glides down by itself ----------
+ * After a few idle seconds the page starts a slow, continuous scroll. It eases in, slows down while the
+ * cursors are building a block and speeds back up after. Any wheel, touch, key or click hands control back
+ * (it starts again after another idle spell); it stops for good at the end of the page. */
 const IDLE_MS = 4500;
+const CRUISE = 70, WORKING = 26; // px per second
 function autoScroll() {
   let last = performance.now();
-  let done = false;
-  const poke = () => { last = performance.now(); };
+  let speed = 0, pos = -1, prev = 0, done = false;
+  const poke = () => { last = performance.now(); speed = 0; pos = -1; };
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => addEventListener(e, poke, { passive: true }));
-  const tick = () => {
-    if (done || !fxOn()) return;
-    const idle = performance.now() - last > IDLE_MS;
-    const working = runner.busy || (runner.flock && runner.flock.mode !== 'off');
-    if (idle && !working) {
-      const next = Array.from(document.querySelectorAll<HTMLElement>('[data-build]:not(.is-built)'))
-        .find((el) => el.getBoundingClientRect().top > innerHeight * 0.5);
-      const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 4;
-      if (!next || atEnd) { done = true; return; }
-      scrollTo({ top: scrollY + next.getBoundingClientRect().top - innerHeight * 0.18, behavior: 'smooth' });
-      last = performance.now() - IDLE_MS + 1800; // short pause after each step, then the next one
+  const step = (now: number) => {
+    if (done) return;
+    const dt = Math.min(0.05, (now - prev) / 1000 || 0);
+    prev = now;
+    if (fxOn() && now - last > IDLE_MS) {
+      const working = runner.busy || (runner.flock !== null && runner.flock.mode !== 'off');
+      const want = working ? WORKING : CRUISE;
+      speed += (want - speed) * Math.min(1, dt * 1.5); // ease toward the target speed
+      if (pos < 0) pos = scrollY;
+      pos += speed * dt;
+      const max = document.documentElement.scrollHeight - innerHeight;
+      if (pos >= max) { pos = max; done = true; }
+      scrollTo({ top: pos, behavior: 'instant' });
     }
-    setTimeout(tick, 400);
+    requestAnimationFrame(step);
   };
-  setTimeout(tick, 400);
+  requestAnimationFrame((t) => { prev = t; requestAnimationFrame(step); });
 }
 
 /* ---------- effects toggle ---------- */
