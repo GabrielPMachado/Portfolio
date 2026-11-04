@@ -182,6 +182,8 @@ function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 }
 type Live = { j: Job; r: DOMRect; p: number };
 
+/** How many cursors build the site. */
+const CURSORS = { desktop: 8, mobile: 6 };
 const COLORS = ['#1E8BFF', '#5FB0FF', '#FFB224', '#FF4A4A', '#34D399', '#C084FC', '#F472B6'];
 const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -257,8 +259,9 @@ class Flock {
     this.resize();
     addEventListener('resize', () => this.resize());
     // The flock is split into crews, each a full team. A piece is always built by the same crew.
-    const n = innerWidth < 720 ? 36 : 72;
-    this.crews = innerWidth < 720 ? 2 : 3;
+    const n = innerWidth < 720 ? CURSORS.mobile : CURSORS.desktop;
+    // a small flock works as a single crew, so every crew still has the whole team
+    this.crews = n >= 24 ? (innerWidth < 720 ? 2 : 3) : n >= 12 ? (innerWidth < 720 ? 1 : 2) : 1;
     const team: [Kind, number, number][] = [];
     for (let c = 0; c < this.crews; c++) {
       const seen: Partial<Record<Kind, number>> = {};
