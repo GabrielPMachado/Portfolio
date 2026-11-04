@@ -94,6 +94,7 @@ type Boid = {
   hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
   clk: number; due: number; was: boolean; // how often this cursor clicks, and when its next click may land
   slot: number; of: number; // its own part of the piece (one cell of a grid), out of how many in its crew
+  chief: number; // -1, or which of the two lead builders of the blocks still in line it is
 };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
@@ -257,6 +258,7 @@ class Flock {
   sketching: HTMLElement[] = []; // blocks in line, on screen, that helpers can sketch
   helped = new Map<HTMLElement, number>(); // last time a helper was working on a block in line
   lastT = 0;
+  chiefAt: ({ j: Job; host: HTMLElement } | null)[] = [null, null]; // the piece each builder is on
   seq = 0;
 
   constructor() {
@@ -281,7 +283,7 @@ class Flock {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.62, 0.9), seed: Math.random() * Math.PI * 2, rot: 0,
         kind, q, crew, spd: rnd(0.85, 1.35), gain: rnd(0.7, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
-        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1,
+        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1, chief: -1,
       };
       this.place(b);
       this.boids.push(b);
@@ -292,15 +294,20 @@ class Flock {
       const order = crew.map((_, k) => k);
       for (let k = order.length - 1; k > 0; k--) { const m = (Math.random() * (k + 1)) | 0; [order[k], order[m]] = [order[m], order[k]]; }
       crew.forEach((b, k) => { b.slot = order[k]; b.of = crew.length; });
+      // two cursors of the first crew are builders too: each one really builds a block still in line
+      if (c === 0) crew.forEach((b) => { b.chief = b.slot === 1 ? 0 : b.slot === 2 ? 1 : -1; });
     }
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
     const j = this.makeJob(el, host, start);
     // a piece the helpers already sketched carries on from that sketch
-    j.pre = this.drafts.get(host)?.find((d) => d.el === el)?.pre ?? 0;
+    const d = this.drafts.get(host)?.find((x) => x.el === el);
+    j.pre = d?.pre ?? 0;
     j.seq = this.seq++;
-    el.classList.add('atom-wait');
+    if (d?.built) j.start = performance.now() - 1.2 * j.dur; // already built by one of the builders: done at once
+    else if (j.pre >= PH[j.kind].r0) j.start = performance.now() - j.pre * j.dur; // halfway: carry on right away
+    else el.classList.add('atom-wait');
     this.jobs.push(j);
     this.left.set(host, (this.left.get(host) ?? 0) + 1);
   }
@@ -335,10 +342,39 @@ class Flock {
       let ds = this.drafts.get(host);
       if (!ds) { ds = atoms(host).map((a) => this.makeJob(a, host, 0)); this.drafts.set(host, ds); }
       this.sketching.push(host);
-      // one piece after the other, slower than the real build, and never past the outline
+      const k = this.sketching.length - 1;
+      if (k < 2 && this.boids.some((b) => b.chief === k && now >= b.enterAt)) {
+        // the next two blocks in line get a builder each: it really builds them, piece by piece,
+        // and like the lead it only works once it stands on the piece's work point
+        if (!host.classList.contains('is-early')) {
+          host.classList.add('is-early');
+          ds.forEach((d) => { if (d.pre < PH[d.kind].r0) d.el.classList.add('atom-wait'); });
+        }
+        for (const d of ds) if (d.pre >= 1 && d.pre < 1.2) d.pre = Math.min(1.2, d.pre + dt / d.dur); // fade out the finished draft
+        const j = ds.find((d) => d.pre < 1);
+        this.chiefAt[k] = j ? { j, host } : null;
+        const b = this.boids.find((x) => x.chief === k)!;
+        if (j) {
+          const [px, py] = this.chiefPoint(j);
+          if (Math.hypot(b.x - px, b.y - py) < 30) j.pre = Math.min(1, j.pre + dt / j.dur);
+        }
+        for (const d of ds) if (d.pre > 0 && !d.built) this.reveal({ j: d, r: d.el.getBoundingClientRect(), p: d.pre });
+        continue;
+      }
+      // the other blocks in line: one piece after the other, slower than the real build, never past the outline
       const j = ds.find((d) => d.pre < PH[d.kind].d);
       if (j && this.helped.get(host)! > now - 120) j.pre = Math.min(PH[j.kind].d, j.pre + (dt / j.dur) * 0.45);
     }
+    for (let k = this.sketching.length; k < 2; k++) this.chiefAt[k] = null;
+  }
+
+  /** Where a builder works on a piece: drags the box from its corner, then sweeps the reveal across it. */
+  chiefPoint(j: Job): [number, number] {
+    const r = j.el.getBoundingClientRect(), ph = PH[j.kind], p = j.pre;
+    if (p < ph.d) { const d = ease(p / ph.d); return [r.left + r.width * d, r.top + r.height * d]; }
+    if (p < ph.r0) return [r.right + 4, r.bottom + 3];
+    if (j.kind === 'text') return this.caret({ j, r, p });
+    return [r.left + r.width * ease(band(p, ph.r0, ph.r1)), r.bottom - 6];
   }
 
   /** A point just outside one screen edge (0 left, 1 right, 2 top, 3 bottom), f along that edge. */
@@ -543,7 +579,7 @@ class Flock {
     } else {
       el.style.opacity = String(ease(v));
     }
-    if (p >= ph.r1) this.finishJob(j);
+    if (p >= ph.r1) { if (j.seq < 0) { j.built = true; cleanAtom(j.el); } else this.finishJob(j); }
   }
 
   frame = (now: number) => {
@@ -564,7 +600,7 @@ class Flock {
     this.jobs = this.jobs.filter((j) => !gone.has(j));
     const shown = live.filter((L) => L.p >= 0 && L.p < 1.2 && L.r.bottom > -40 && L.r.top < this.h + 40);
     for (const L of shown) this.drawJob(L, now);
-    for (const host of this.sketching) for (const j of this.drafts.get(host)!) if (j.pre > 0) this.drawJob({ j, r: j.el.getBoundingClientRect(), p: j.pre }, now);
+    for (const host of this.sketching) for (const j of this.drafts.get(host)!) if (j.pre > 0 && j.pre < 1.2) this.drawJob({ j, r: j.el.getBoundingClientRect(), p: j.pre }, now);
     if (this.loader) this.drawLoader(t);
 
     // a piece is waiting for its cursor: the flock is at work, whatever it was doing
@@ -583,7 +619,12 @@ class Flock {
       const wait = this.mode !== 'orbit' ? this.pending(now) : null;
       const leading = !!wait && b === this.lead(wait.seq % this.crews);
       let glue = false;
-      if (leading) {
+      const chief = b.chief >= 0 && this.mode === 'build' && !leading ? this.chiefAt[b.chief] : null;
+      if (chief) {
+        // a builder on a block still in line: on its work point, nowhere else
+        [tx, ty] = this.chiefPoint(chief.j);
+        glue = Math.hypot(tx - b.x, ty - b.y) < 40;
+      } else if (leading) {
         // the lead flies to the top-left corner of the next piece; the piece only starts once it is there
         const wr = wait!.el.getBoundingClientRect();
         [tx, ty] = [wr.left, wr.top];
@@ -950,16 +991,18 @@ function start() {
 }
 
 /* ---------- auto tour: if the visitor stays still, the page glides down by itself ----------
- * After a few idle seconds the page starts a slow, continuous scroll. It eases in, slows down while the
- * cursors are building a block and speeds back up after. Any wheel, touch, key or click hands control back
- * (it starts again after another idle spell); it stops for good at the end of the page. */
+ * After a few idle seconds the page starts a slow, continuous scroll. It follows the construction: it keeps
+ * the piece being built on screen and cruises between blocks. It only ever runs for a visitor who has not
+ * touched the page: the first wheel, touch, key, click or manual scroll turns it off for good. */
 const IDLE_MS = 4500;
-const CRUISE = 120, WORKING = 48; // px per second
+const CRUISE = 120, WORKING = 48; // px per second (WORKING: building, with no piece to follow)
 let touring = false;
 function autoScroll() {
   let last = performance.now();
   let speed = 0, pos = -1, prev = 0, done = false;
-  const poke = () => { last = performance.now(); speed = 0; pos = -1; touring = false; };
+  // the visitor took the wheel: from now on the page is theirs, the tour never comes back
+  const poke = () => { last = performance.now(); speed = 0; pos = -1; touring = false; done = true; };
+  addEventListener('scroll', () => { if (!done && (!touring || Math.abs(scrollY - pos) > 12)) poke(); }, { passive: true });
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => addEventListener(e, poke, { passive: true }));
   const step = (now: number) => {
     if (done) return;
@@ -967,8 +1010,17 @@ function autoScroll() {
     prev = now;
     if (fxOn() && now - last > IDLE_MS) {
       touring = true;
-      const working = runner.flock?.mode === 'build' || runner.flock?.mode === 'orbit';
-      const want = working ? WORKING : CRUISE;
+      const f = runner.flock;
+      const working = f?.mode === 'build' || f?.mode === 'orbit';
+      let want = working ? WORKING : CRUISE;
+      // while building, the page follows the work: it keeps the piece being built a bit above the middle
+      // of the screen, so it scrolls exactly as fast as the construction goes down (and never runs ahead)
+      const piece = f?.mode === 'build' ? (f.jobs.find((j) => j.start !== Infinity && !j.built) ?? f.jobs.find((j) => !j.built)) : undefined;
+      if (piece) {
+        const r = piece.el.getBoundingClientRect();
+        const ahead = r.top + Math.min(r.height, innerHeight * 0.4) - innerHeight * 0.55;
+        want = Math.max(0, Math.min(CRUISE, ahead * 1.6));
+      }
       speed += (want - speed) * Math.min(1, dt * 1.5); // ease toward the target speed
       if (pos < 0) pos = scrollY;
       pos += speed * dt;
