@@ -1,0 +1,182 @@
+---
+import type { Dict } from '../i18n/pt';
+import NeuralNet from './NeuralNet.tsx';
+import FinancyDemo from './demos/FinancyDemo.tsx';
+import VerticeDemo from './demos/VerticeDemo.tsx';
+import HypeDemo from './demos/HypeDemo.tsx';
+import DindoDemo from './demos/DindoDemo.tsx';
+import '../styles/page.css';
+
+interface Props { t: Dict }
+const { t } = Astro.props;
+const code = t.lang === 'en' ? 'en' : 'pt';
+const home = code === 'en' ? '/en/' : '/';
+const email = 'gabriel.pmachado00@gmail.com';
+const links = [
+  { k: 'Email', v: email, href: `mailto:${email}` },
+  { k: 'LinkedIn', v: 'in/gabrielmachado0', href: 'https://www.linkedin.com/in/gabrielmachado0' },
+  { k: 'GitHub', v: 'GabrielPMachado', href: 'https://github.com/GabrielPMachado' },
+];
+---
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href={home} aria-label="Gabriel Pinto Machado">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Gabriel Pinto Machado</span>
+    </a>
+    <nav class="nav-links" aria-label={t.nav.menu}>
+      <a href="#projetos">{t.nav.projects}</a>
+      <a href="#sobre">{t.nav.about}</a>
+      <a href="#contato">{t.nav.contact}</a>
+    </nav>
+    <div class="nav-actions">
+      <div class="lang mono" role="group" aria-label={t.nav.langLabel}>
+        <a href="/" hreflang="pt-BR" aria-current={code === 'pt' ? 'true' : undefined}>PT</a>
+        <span aria-hidden="true">/</span>
+        <a href="/en/" hreflang="en" aria-current={code === 'en' ? 'true' : undefined}>EN</a>
+      </div>
+      <button class="fx-btn mono" type="button" data-fx-toggle aria-pressed="true" aria-label={t.nav.fxLabel} data-on={t.nav.fxOn} data-off={t.nav.fxOff}>
+        <i aria-hidden="true"></i><span data-fx-label>{t.nav.fxOn}</span>
+      </button>
+      <a class="btn btn-primary nav-cta" href="#contato">{t.nav.cta}</a>
+      <button class="menu-btn" type="button" data-menu-toggle aria-expanded="false" aria-controls="menu-mobile" aria-label={t.nav.menu}>
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 7h16M3 15h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="menu-mobile" class="menu-mobile" hidden>
+    <a href="#projetos">{t.nav.projects}</a>
+    <a href="#sobre">{t.nav.about}</a>
+    <a href="#contato">{t.nav.contact}</a>
+  </div>
+</header>
+
+<main id="conteudo">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <span class="tag" data-build>{t.hero.tag}</span>
+        <h1 id="hero-title" class="h-title" data-build>
+          <span class="line" data-scramble>{t.hero.title[0]}</span>
+          <span class="dim" data-scramble>{t.hero.title[1]}</span>
+        </h1>
+        <p class="hero-p" data-build>{t.hero.text}</p>
+        <div class="hero-cta" data-build>
+          <a class="btn btn-primary" href="#projetos">{t.hero.primary} <span class="arr">→</span></a>
+          <a class="btn btn-ghost" href="#contato">{t.hero.secondary} <span class="arr">→</span></a>
+        </div>
+      </div>
+      <div class="hero-visual" data-hero-center data-build>
+        <div class="grid-bg" aria-hidden="true"></div>
+        <NeuralNet client:visible label={t.hero.visualLabel} />
+        <span class="hud hud-tl mono" aria-hidden="true"><i class="live"></i>neural.net · online</span>
+        <span class="hud hud-br mono" aria-hidden="true">-30.03, -51.23</span>
+      </div>
+    </div>
+    <div class="wrap">
+      <dl class="data" data-build>
+        {t.hero.data.map((d) => (
+          <div>
+            <dt class="mono">{d.k}</dt>
+            <dd>{d.v}{d.clock && <> · <span class="mono" data-clock>--:-- BRT</span></>}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  </section>
+
+  <div class="tech" aria-label="Stack">
+    <div class="tech-track mono">
+      {[...t.tech, ...t.tech].map((x, i) => <span aria-hidden={i >= t.tech.length ? 'true' : undefined}>{x}<i>/</i></span>)}
+    </div>
+  </div>
+
+  <section id="projetos" class="projects" aria-labelledby="proj-title">
+    <div class="wrap">
+      <header class="sec-head" data-build>
+        <span class="tag">{t.projects.tag}</span>
+        <h2 id="proj-title" class="h-title h-section">
+          <span class="line" data-scramble>{t.projects.title[0]}</span>
+          <span class="dim" data-scramble>{t.projects.title[1]}</span>
+        </h2>
+      </header>
+      <div class="cases">
+        {t.projects.items.map((p, i) => {
+          return (
+            <article class={`case ${i % 2 ? 'flip' : ''}`} aria-labelledby={`p-${p.id}`}>
+              <div class="case-text" data-build>
+                <div class="case-k mono"><span>{String(i + 1).padStart(2, '0')}</span>{p.cat}</div>
+                <h3 id={`p-${p.id}`} data-scramble>{p.name}</h3>
+                <p>{p.desc}</p>
+                <ul class="case-hl">{p.highlights.map((h) => <li>{h}</li>)}</ul>
+                <ul class="case-tech" aria-label="Tecnologias">{p.tech.map((x) => <li class="chip">{x}</li>)}</ul>
+                <a class="case-link" href={p.link.href} target="_blank" rel="noopener">{p.link.label} <span aria-hidden="true">↗</span></a>
+              </div>
+              <div class="case-visual sel-host" data-build>
+                <div class="grid-bg small" aria-hidden="true"></div>
+                {p.id === 'financy' && <FinancyDemo client:visible lang={code} />}
+                {p.id === 'vertice' && <VerticeDemo client:visible lang={code} />}
+                {p.id === 'hype' && <HypeDemo client:visible lang={code} />}
+                {p.id === 'dindo' && <DindoDemo client:visible lang={code} />}
+                <span class="demo-note mono">{t.projects.demoNote}</span>
+                <span class="sel-box" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+
+  <section id="sobre" class="about" aria-labelledby="about-title">
+    <div class="wrap about-grid">
+      <div data-build>
+        <span class="tag">{t.about.tag}</span>
+        <h2 id="about-title" class="h-title h-about">
+          <span class="line" data-scramble>{t.about.title[0]}</span>
+          <span class="dim" data-scramble>{t.about.title[1]}</span>
+        </h2>
+        <p class="about-p">{t.about.text}</p>
+      </div>
+      <ol class="principles" data-build>
+        {t.about.principles.map((p, i) => (
+          <li><span class="mono">{String(i + 1).padStart(2, '0')}</span><div><h3>{p.h}</h3><p>{p.d}</p></div></li>
+        ))}
+      </ol>
+    </div>
+  </section>
+
+  <section id="contato" class="contact" aria-labelledby="contact-title">
+    <div class="wrap">
+      <header class="sec-head" data-build>
+        <span class="tag">{t.contact.tag}</span>
+        <h2 id="contact-title" class="h-title h-section">
+          <span class="line" data-scramble>{t.contact.title[0]}</span>
+          <span class="dim" data-scramble>{t.contact.title[1]}</span>
+        </h2>
+      </header>
+      <div class="paths">
+        {t.contact.paths.map((c, i) => (
+          <div class="path" data-build>
+            <span class="mono path-k">{c.k}</span>
+            <h3>{c.h}</h3>
+            <p>{c.d}</p>
+            <a class={`btn ${i === 0 ? 'btn-primary' : 'btn-ghost'}`} href={`mailto:${email}?subject=${encodeURIComponent(c.subject)}`}>{c.cta} <span class="arr">→</span></a>
+          </div>
+        ))}
+      </div>
+      <ul class="clinks" data-build>
+        {links.map((l) => (
+          <li><a href={l.href} target={l.k === 'Email' ? undefined : '_blank'} rel="noopener"><span class="mono">{l.k}</span><strong>{l.v}</strong><i aria-hidden="true">↗</i></a></li>
+        ))}
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>© {new Date().getFullYear()} Gabriel Pinto Machado</span>
+    <span class="mono">{t.footer.made}</span>
+  </div>
+</footer>
