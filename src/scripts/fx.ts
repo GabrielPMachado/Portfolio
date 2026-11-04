@@ -581,6 +581,29 @@ class Flock {
   }
 }
 
+/* ---------- calm entrance: pieces of a block rise in one after the other ---------- */
+function atoms(el: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const kids = Array.from(el.children) as HTMLElement[];
+  if (!kids.length || el.classList.contains('case-visual')) return [el];
+  for (const k of kids) {
+    if (k.matches('.grid-bg, .sel-box, [aria-hidden="true"]:empty')) continue;
+    const lines = k.querySelectorAll<HTMLElement>(':scope > .line, :scope > .dim');
+    if (lines.length) { out.push(...lines); continue; }
+    if (k.matches('ul, ol, dl')) { out.push(...(Array.from(k.children) as HTMLElement[])); continue; }
+    if (k.matches('.sec-head, header, div') && k.children.length && !k.matches('.path, .hero-cta')) { out.push(...atoms(k)); continue; }
+    out.push(k);
+  }
+  return out;
+}
+function softIn(el: HTMLElement) {
+  if (el.classList.contains('is-built')) return;
+  const list = atoms(el);
+  list.forEach((a, i) => { a.style.setProperty('--i', String(Math.min(i, 14))); a.classList.add('rise'); });
+  el.classList.add('is-built', 'soft');
+  setTimeout(() => list.forEach((a) => { a.classList.remove('rise'); a.style.removeProperty('--i'); }), 2600);
+}
+
 /* ---------- runner: queue blocks as they enter the screen ---------- */
 const STAGGER = 260; // between blocks
 const PIECE = 110; // between the pieces of one block
