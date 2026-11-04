@@ -89,6 +89,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 /* Assembly effect: blocks wait for the swarm while effects run */
 html.fx-run [data-build]:not(.is-built):not(.is-revealing) { opacity: 0; }
 [data-build].is-revealing { opacity: 1; }
+html.fx-run [data-build].is-early:not(.is-built) { opacity: 1; } /* a block a builder is already working on */
 html.fx-done [data-build] { opacity: 1 !important; transform: none !important; }
 /* Pieces of a block wait for their cursor; titles glitch in with ghost copies that settle */
 html.fx-run .atom-wait { opacity: 0; }
