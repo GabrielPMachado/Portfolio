@@ -123,7 +123,7 @@ class Flock {
   ctx: CanvasRenderingContext2D;
   boids: Boid[] = [];
   jobs: Job[] = [];
-  mode: 'off' | 'orbit' | 'build' | 'leave' = 'off';
+  mode: 'off' | 'orbit' | 'build' | 'wait' | 'leave' = 'off';
   modeStart = 0;
   raf = 0;
   w = 0; h = 0; dpr = 1;
@@ -283,7 +283,8 @@ class Flock {
       if (now < b.enterAt) return; // still waiting off screen for its turn to come in
       b.insp = false;
       let tx: number, ty: number;
-      if (this.mode === 'orbit' || (this.mode === 'build' && !active.length && live.length)) {
+      if (this.mode === 'orbit' || this.mode === 'wait' || (this.mode === 'build' && !active.length && live.length)) {
+        if (this.mode === 'wait') this.center = { x: this.w / 2, y: this.h * 0.62 };
         const next = live.find((l) => l.p <= -0.15);
         if (this.mode === 'build' && next) this.center = { x: next.r.left + next.r.width / 2, y: next.r.top + next.r.height / 2 };
         const a = b.seed + t * (1.1 + b.spd * 0.4) * (i % 2 ? 1 : -1);
@@ -313,7 +314,9 @@ class Flock {
       this.drawCursor(b);
     });
 
-    if (this.mode === 'build' && this.jobs.length === 0) this.setMode('leave');
+    // While the page is touring by itself the flock hangs around for the next block instead of leaving.
+    if (this.mode === 'build' && this.jobs.length === 0) this.setMode(touring ? 'wait' : 'leave');
+    if (this.mode === 'wait' && !touring) this.setMode('leave');
     // Only stop once every cursor has actually flown off the screen.
     if (this.mode === 'leave' && (this.boids.every((b) => this.offscreen(b)) || t > 8)) {
       this.boids.forEach((b) => this.place(b));
@@ -437,12 +440,12 @@ const runner = {
     if (el.classList.contains('is-built') || this.queue.includes(el) || this.flock?.jobs.some((j) => j.el === el)) return;
     const f = this.flock;
     // The flock is already on screen: queue the new block right after the last one.
-    if (this.busy && f && (f.mode === 'build' || f.mode === 'leave')) {
+    if (this.busy && f && (f.mode === 'build' || f.mode === 'wait' || f.mode === 'leave')) {
       const last = f.jobs.reduce((m, j) => Math.max(m, j.start), performance.now() - STAGGER);
       // Scrolling fast: don't keep content hidden behind a long line of blocks.
       if (last + STAGGER - performance.now() > 2200) { markBuilt(el, false); return; }
       this.addJob(f, el, Math.max(performance.now() + 150, last + STAGGER));
-      if (f.mode === 'leave') f.setMode('build');
+      if (f.mode === 'leave' || f.mode === 'wait') f.setMode('build');
       return;
     }
     this.queue.push(el);
@@ -517,24 +520,26 @@ function start() {
  * cursors are building a block and speeds back up after. Any wheel, touch, key or click hands control back
  * (it starts again after another idle spell); it stops for good at the end of the page. */
 const IDLE_MS = 4500;
-const CRUISE = 70, WORKING = 26; // px per second
+const CRUISE = 120, WORKING = 48; // px per second
+let touring = false;
 function autoScroll() {
   let last = performance.now();
   let speed = 0, pos = -1, prev = 0, done = false;
-  const poke = () => { last = performance.now(); speed = 0; pos = -1; };
+  const poke = () => { last = performance.now(); speed = 0; pos = -1; touring = false; };
   ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => addEventListener(e, poke, { passive: true }));
   const step = (now: number) => {
     if (done) return;
     const dt = Math.min(0.05, (now - prev) / 1000 || 0);
     prev = now;
     if (fxOn() && now - last > IDLE_MS) {
-      const working = runner.busy || (runner.flock !== null && runner.flock.mode !== 'off');
+      touring = true;
+      const working = runner.flock?.mode === 'build' || runner.flock?.mode === 'orbit';
       const want = working ? WORKING : CRUISE;
       speed += (want - speed) * Math.min(1, dt * 1.5); // ease toward the target speed
       if (pos < 0) pos = scrollY;
       pos += speed * dt;
       const max = document.documentElement.scrollHeight - innerHeight;
-      if (pos >= max) { pos = max; done = true; }
+      if (pos >= max) { pos = max; done = true; touring = false; }
       scrollTo({ top: pos, behavior: 'instant' });
     }
     requestAnimationFrame(step);
