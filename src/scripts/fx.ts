@@ -86,12 +86,12 @@ function scrambleIn(el: HTMLElement) {
 type Kind = 'frame' | 'sweep' | 'bar' | 'guide' | 'measure' | 'type' | 'inspect';
 type Boid = {
   x: number; y: number; vx: number; vy: number; c: string; s: number; seed: number;
-  kind: Kind; q: number;            // job in the team and index within that job
+  kind: Kind; q: number; crew: number; // job in the team, index within that job in its crew, and its crew
   spd: number; gain: number; lag: number; // personality: top speed, reaction, delay
   enterAt: number; ex: number; ey: number; // when it flies in, where it flies out
   hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
 };
-type Job = { el: HTMLElement; title: HTMLElement | null; start: number; dur: number; revealed: boolean; built: boolean; bars: number[] };
+type Job = { seq: number; el: HTMLElement; title: HTMLElement | null; start: number; dur: number; revealed: boolean; built: boolean; bars: number[] };
 type Live = { j: Job; r: DOMRect; p: number; tr: DOMRect | null };
 
 const COLORS = ['#1E8BFF', '#1E8BFF', '#FFB224', '#FF4A4A', '#34D399', '#5FB0FF'];
@@ -128,6 +128,8 @@ class Flock {
   raf = 0;
   w = 0; h = 0; dpr = 1;
   center = { x: 0, y: 0 };
+  crews = 3;
+  seq = 0;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -137,14 +139,19 @@ class Flock {
     this.ctx = this.canvas.getContext('2d')!;
     this.resize();
     addEventListener('resize', () => this.resize());
+    // The flock is split into crews, each a full team (every job covered). A block is always built by the
+    // same crew from start to end, so cursors don't all switch blocks whenever a new one starts.
     const n = innerWidth < 720 ? 32 : 64;
-    const team = teamFor(n);
-    const seen: Partial<Record<Kind, number>> = {};
-    team.forEach((kind, i) => {
-      const q = (seen[kind] = (seen[kind] ?? -1) + 1);
+    this.crews = innerWidth < 720 ? 2 : 3;
+    const team: [Kind, number, number][] = [];
+    for (let c = 0; c < this.crews; c++) {
+      const seen: Partial<Record<Kind, number>> = {};
+      teamFor(Math.round(n / this.crews)).forEach((kind) => team.push([kind, (seen[kind] = (seen[kind] ?? -1) + 1), c]));
+    }
+    team.forEach(([kind, q, crew], i) => {
       const b: Boid = {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.85, 1.2), seed: Math.random() * Math.PI * 2,
-        kind, q, spd: rnd(0.75, 1.3), gain: rnd(0.65, 1.35), lag: rnd(0, 0.05),
+        kind, q, crew, spd: rnd(0.75, 1.3), gain: rnd(0.65, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
       };
       this.place(b);
@@ -279,20 +286,40 @@ class Flock {
 
     // steering: each cursor does its own job on one of the live blocks
     const active = live.filter((l) => l.p > -0.15 && l.p < 1);
+    const review = this.mode === 'wait'
+      ? Array.from(document.querySelectorAll<HTMLElement>('[data-build].is-built')).map((el) => el.getBoundingClientRect())
+          .filter((rc) => rc.top > 40 && rc.bottom < this.h + rc.height * 0.5 && rc.top < this.h - 60 && rc.height > 30)
+      : [];
     this.boids.forEach((b, i) => {
       if (now < b.enterAt) return; // still waiting off screen for its turn to come in
       b.insp = false;
       let tx: number, ty: number;
-      if (this.mode === 'orbit' || this.mode === 'wait' || (this.mode === 'build' && !active.length && live.length)) {
-        if (this.mode === 'wait') this.center = { x: this.w / 2, y: this.h * 0.62 };
+      if (this.mode === 'wait' && review.length) {
+        // waiting for the next block while the page glides: review the finished blocks on screen
+        [tx, ty] = this.inspect(b, review[(b.crew * 5 + b.q + i) % review.length], now);
+      } else if (this.mode === 'orbit' || this.mode === 'wait' || (this.mode === 'build' && !active.length && live.length)) {
+        if (this.mode === 'wait') this.center = { x: this.w / 2, y: this.h - 90 };
         const next = live.find((l) => l.p <= -0.15);
-        if (this.mode === 'build' && next) this.center = { x: next.r.left + next.r.width / 2, y: next.r.top + next.r.height / 2 };
+        if (this.mode === 'build') {
+          // between blocks: circle the next one, or the one just finished, never a stale spot
+          const ref = next ?? live[live.length - 1];
+          this.center = { x: ref.r.left + ref.r.width / 2, y: ref.r.top + ref.r.height / 2 };
+        }
+        this.center = { x: Math.min(this.w - 80, Math.max(80, this.center.x)), y: Math.min(this.h - 80, Math.max(80, this.center.y)) };
         const a = b.seed + t * (1.1 + b.spd * 0.4) * (i % 2 ? 1 : -1);
         const rad = 60 + (i % 7) * 20 + Math.sin(t * 2 + i) * 14;
         [tx, ty] = [this.center.x + Math.cos(a) * rad, this.center.y + Math.sin(a) * rad * 0.7];
       } else if (this.mode === 'build' && active.length) {
-        const L = active[b.q % active.length];
-        [tx, ty] = this.targetFor(b, L, Math.floor(b.q / active.length), now, t);
+        const mine = active.filter((l) => l.j.seq % this.crews === b.crew);
+        if (mine.length) {
+          const L = mine[b.q % mine.length];
+          [tx, ty] = this.targetFor(b, L, Math.floor(b.q / mine.length), now, t);
+        } else {
+          // crew without a block right now: help review the closest block being built
+          const near = active.reduce((m, l) => (Math.hypot(l.r.left + l.r.width / 2 - b.x, l.r.top + l.r.height / 2 - b.y) < Math.hypot(m.r.left + m.r.width / 2 - b.x, m.r.top + m.r.height / 2 - b.y) ? l : m));
+          b.insp = false;
+          [tx, ty] = this.inspect(b, near.r, now);
+        }
       } else {
         [tx, ty] = [b.ex, b.ey];
       }
@@ -434,7 +461,7 @@ const runner = {
   busy: false,
   intro: true,
   addJob(f: Flock, el: HTMLElement, start: number) {
-    f.jobs.push({ el, title: el.matches('[data-scramble]') ? el : el.querySelector<HTMLElement>('[data-scramble]'), start, dur: JOB_MS, revealed: false, built: false, bars: barsFor(el) });
+    f.jobs.push({ seq: f.seq++, el, title: el.matches('[data-scramble]') ? el : el.querySelector<HTMLElement>('[data-scramble]'), start, dur: JOB_MS, revealed: false, built: false, bars: barsFor(el) });
   },
   push(el: HTMLElement) {
     if (el.classList.contains('is-built') || this.queue.includes(el) || this.flock?.jobs.some((j) => j.el === el)) return;
