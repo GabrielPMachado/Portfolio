@@ -83,19 +83,39 @@ function scrambleIn(el: HTMLElement) {
  *  3. reveal: a cursor sweeps left to right and the real content appears behind it
  *             while the placeholders it passes disappear and the title scrambles in;
  *  4. done:   handles flash, guides fade, the cursors move on to the next block. */
-type Boid = { x: number; y: number; vx: number; vy: number; c: string; s: number; seed: number };
-type Job = { el: HTMLElement; start: number; dur: number; revealed: boolean; built: boolean; bars: number[] };
+type Kind = 'frame' | 'sweep' | 'bar' | 'guide' | 'measure' | 'type' | 'inspect';
+type Boid = {
+  x: number; y: number; vx: number; vy: number; c: string; s: number; seed: number;
+  kind: Kind; q: number;            // job in the team and index within that job
+  spd: number; gain: number; lag: number; // personality: top speed, reaction, delay
+  enterAt: number; ex: number; ey: number; // when it flies in, where it flies out
+  hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
+};
+type Job = { el: HTMLElement; title: HTMLElement | null; start: number; dur: number; revealed: boolean; built: boolean; bars: number[] };
+type Live = { j: Job; r: DOMRect; p: number; tr: DOMRect | null };
 
 const COLORS = ['#1E8BFF', '#1E8BFF', '#FFB224', '#FF4A4A', '#34D399', '#5FB0FF'];
 const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 const DRAG = [0, 0.26], BARS = [0.22, 0.55], REVEAL = [0.55, 0.88];
 const JOB_MS = 2600;
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
 function barsFor(el: HTMLElement) {
   // one placeholder bar per ~30px of height, with widths that look like lines of content
   const n = Math.max(2, Math.min(7, Math.round(el.getBoundingClientRect().height / 34)));
   return Array.from({ length: n }, (_, i) => (i === 0 ? 0.55 : i === n - 1 ? 0.4 : 0.7 + ((i * 37) % 25) / 100));
+}
+
+/** The team: every cursor has one job for the whole visit (shares are per 64 cursors). */
+function teamFor(n: number): Kind[] {
+  const share: [Kind, number][] = [['frame', 7], ['sweep', 7], ['bar', 16], ['guide', 6], ['measure', 4], ['type', 6]];
+  const out: Kind[] = [];
+  for (const [k, c] of share) for (let i = 0; i < Math.max(1, Math.round((c * n) / 64)); i++) out.push(k);
+  while (out.length < n) out.push('inspect');
+  out.length = n;
+  for (let i = out.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
 }
 
 class Flock {
@@ -118,15 +138,36 @@ class Flock {
     this.resize();
     addEventListener('resize', () => this.resize());
     const n = innerWidth < 720 ? 32 : 64;
-    for (let i = 0; i < n; i++) this.boids.push(this.spawn(i));
+    const team = teamFor(n);
+    const seen: Partial<Record<Kind, number>> = {};
+    team.forEach((kind, i) => {
+      const q = (seen[kind] = (seen[kind] ?? -1) + 1);
+      const b: Boid = {
+        x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.85, 1.2), seed: Math.random() * Math.PI * 2,
+        kind, q, spd: rnd(0.75, 1.3), gain: rnd(0.65, 1.35), lag: rnd(0, 0.05),
+        enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
+      };
+      this.place(b);
+      this.boids.push(b);
+    });
   }
 
-  spawn(i: number): Boid {
-    const edge = i % 4;
-    const x = edge === 0 ? -20 : edge === 1 ? this.w + 20 : Math.random() * this.w;
-    const y = edge === 2 ? -20 : edge === 3 ? this.h + 20 : Math.random() * this.h;
-    return { x, y, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: 0.85 + Math.random() * 0.35, seed: Math.random() * Math.PI * 2 };
+  /** A point just outside one screen edge (0 left, 1 right, 2 top, 3 bottom), f along that edge. */
+  outside(edge: number, f: number): [number, number] {
+    const m = rnd(40, 140);
+    if (edge === 0) return [-m, f * this.h];
+    if (edge === 1) return [this.w + m, f * this.h];
+    if (edge === 2) return [f * this.w, -m];
+    return [f * this.w, this.h + m];
   }
+
+  /** Put a cursor somewhere random off screen, ready to fly in. */
+  place(b: Boid) {
+    [b.x, b.y] = this.outside((Math.random() * 4) | 0, Math.random());
+    b.vx = 0; b.vy = 0;
+  }
+
+  offscreen(b: Boid) { return b.x < -24 || b.y < -24 || b.x > this.w + 24 || b.y > this.h + 24; }
 
   resize() {
     this.dpr = Math.min(2, devicePixelRatio || 1);
@@ -136,7 +177,17 @@ class Flock {
   }
 
   setMode(m: Flock['mode']) {
+    const was = this.mode;
     this.mode = m; this.modeStart = performance.now();
+    // Arriving: everyone comes in from where they are (off screen), each at its own moment.
+    if (was === 'off' && m !== 'off') this.boids.forEach((b) => { b.enterAt = this.modeStart + rnd(0, 900); });
+    // Leaving: each cursor picks its own way out, usually the closest edge.
+    if (m === 'leave') this.boids.forEach((b) => {
+      const near = [b.x, this.w - b.x, b.y, this.h - b.y];
+      const edge = Math.random() < 0.65 ? near.indexOf(Math.min(...near)) : (Math.random() * 4) | 0;
+      const along = edge < 2 ? b.y / this.h : b.x / this.w;
+      [b.ex, b.ey] = this.outside(edge, Math.min(1.1, Math.max(-0.1, along + rnd(-0.25, 0.25))));
+    });
     if (m !== 'off' && !this.raf) this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -148,30 +199,64 @@ class Flock {
     this.ctx.clearRect(0, 0, this.w, this.h);
   }
 
-  /** Where a given role should be for a job at progress p. Roles: 0 = lead, 1..n = bar carriers, rest = crowd. */
-  targetFor(r: DOMRect, p: number, role: number, bars: number[], i: number, t: number): [number, number] {
-    const pad = Math.min(18, r.width * 0.06);
-    if (role === 0) {
-      if (p < DRAG[1]) { const d = ease(band(p, DRAG[0], DRAG[1])); return [r.left + r.width * d, r.top + r.height * d]; }
-      if (p < REVEAL[0]) return [r.right + 6, r.bottom + 4];
-      const v = ease(band(p, REVEAL[0], REVEAL[1]));
-      return [r.left + r.width * v, r.top + r.height * (0.5 + 0.35 * Math.sin(t * 9))];
+  /** Reviewer: hops between spots of the block, pauses and clicks, at its own pace. */
+  inspect(b: Boid, r: DOMRect, now: number): [number, number] {
+    b.insp = true;
+    if (now > b.hopUntil) {
+      b.hx = rnd(-0.05, 1.05); b.hy = rnd(-0.05, 1.05);
+      b.hopUntil = now + rnd(450, 1300); b.clicked = false;
     }
-    if (role <= bars.length) {
-      const k = role - 1;
-      const rowH = (r.height - pad * 2) / bars.length;
-      const y = r.top + pad + rowH * k + rowH * 0.3;
-      const bp = band(p, BARS[0] + k * 0.035, BARS[0] + 0.16 + k * 0.035);
-      if (bp <= 0) return [r.left - 30 - k * 12, y - 20];
-      return [r.left + pad + (r.width - pad * 2) * bars[k] * ease(bp), y + 6];
+    return [r.left + r.width * b.hx, r.top + r.height * b.hy];
+  }
+
+  /** Where a cursor should be, given its job in the team and the block it is working on. */
+  targetFor(b: Boid, L: Live, sub: number, now: number, t: number): [number, number] {
+    const { r } = L;
+    const p = Math.max(0, L.p);
+    const pl = Math.max(0, L.p - b.lag);
+    const d = ease(band(p, DRAG[0], DRAG[1]));
+    const wob = Math.sin(t * 2.2 + b.seed);
+    switch (b.kind) {
+      case 'frame': // drags the selection box out, then keeps holding the corner handle
+        if (sub > 0) break;
+        if (p < DRAG[1]) return [r.left + r.width * d, r.top + r.height * d];
+        if (p < REVEAL[1]) return [r.right + 5 + wob * 3, r.bottom + 4];
+        break;
+      case 'sweep': { // waits at the left edge, then sweeps the real content in
+        if (sub > 0 || p > REVEAL[1] + 0.05) break;
+        if (p < REVEAL[0]) return [r.left - 18, r.top + r.height * 0.5 + wob * 10];
+        const v = ease(band(p, REVEAL[0], REVEAL[1]));
+        return [r.left + r.width * v, r.top + r.height * (0.5 + 0.32 * Math.sin(t * 8 + b.seed))];
+      }
+      case 'bar': { // drags one grey placeholder line into the box
+        const bars = L.j.bars;
+        if (sub >= bars.length || p > REVEAL[0] + 0.1) break;
+        const pad = Math.min(18, r.width * 0.06);
+        const rowH = (r.height - pad * 2) / bars.length;
+        const y = r.top + pad + rowH * sub + rowH * 0.3;
+        const bp = band(pl, BARS[0] + sub * 0.035, BARS[0] + 0.16 + sub * 0.035);
+        if (bp <= 0) return [r.left - 30 - sub * 12, y - 20];
+        return [r.left + pad + (r.width - pad * 2) * bars[sub] * ease(bp), y + 6];
+      }
+      case 'guide': { // holds the guide lines: blue ones out to the sides, the red one from above
+        if (p > 0.9) break;
+        const reach = 30 + 70 * (0.5 + 0.5 * wob);
+        if (sub % 3 === 0) return [r.left - reach, r.top + r.height * d];
+        if (sub % 3 === 1) return [r.left + r.width * d + reach, r.top];
+        return [r.left + r.width * d, r.top - reach * 0.7];
+      }
+      case 'measure': // checks the size label while the box grows
+        if (p > REVEAL[0] + 0.15) break;
+        return [r.left + (r.width * d) / 2 + 36 + sub * 16, r.top + r.height * d + 22 + wob * 3];
+      case 'type': { // clicks along the title while it scrambles in
+        if (p > REVEAL[1] + 0.06) break;
+        const tr = L.tr ?? new DOMRect(r.left, r.top, r.width, Math.min(56, r.height));
+        if (pl < REVEAL[0] - 0.04) return [tr.left + tr.width * ((0.15 + 0.3 * sub) % 1), tr.top - 20 + wob * 4];
+        const step = Math.floor(t * (2.5 + b.spd) + b.seed * 3);
+        return [tr.left + tr.width * ((step * 0.37 + sub * 0.23 + b.seed) % 1), tr.top + tr.height * 0.6];
+      }
     }
-    // crowd: hang around the edges of the box, drifting
-    const per = 2 * (r.width + r.height);
-    let d = (((i * 53) % 100) / 100 * per + t * 60) % per;
-    if (d < r.width) return [r.left + d, r.top - 10];
-    d -= r.width; if (d < r.height) return [r.right + 10, r.top + d];
-    d -= r.height; if (d < r.width) return [r.right - d, r.bottom + 10];
-    d -= r.width; return [r.left - 10, r.bottom - d];
+    return this.inspect(b, r, now);
   }
 
   frame = (now: number) => {
@@ -180,7 +265,7 @@ class Flock {
     ctx.clearRect(0, 0, this.w, this.h);
     const t = (now - this.modeStart) / 1000;
 
-    const live = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur }));
+    const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur, tr: j.title?.getBoundingClientRect() ?? null }));
     for (const { j, p } of live) {
       if (p >= REVEAL[0] && !j.revealed) { j.revealed = true; j.el.classList.add('is-revealing'); scrambleIn(j.el); }
       if (j.revealed && !j.built) {
@@ -192,27 +277,27 @@ class Flock {
     this.jobs = live.filter(({ p }) => p < 1.25).map(({ j }) => j);
     for (const L of live) this.drawJob(L.r, L.p, L.j.bars);
 
-    // steering: every live job gets a lead, its bar carriers and a crowd
+    // steering: each cursor does its own job on one of the live blocks
     const active = live.filter((l) => l.p > -0.15 && l.p < 1);
     this.boids.forEach((b, i) => {
+      if (now < b.enterAt) return; // still waiting off screen for its turn to come in
+      b.insp = false;
       let tx: number, ty: number;
       if (this.mode === 'orbit' || (this.mode === 'build' && !active.length && live.length)) {
         const next = live.find((l) => l.p <= -0.15);
         if (this.mode === 'build' && next) this.center = { x: next.r.left + next.r.width / 2, y: next.r.top + next.r.height / 2 };
-        const a = b.seed + t * (1.3 + (i % 5) * 0.12) * (i % 2 ? 1 : -1);
+        const a = b.seed + t * (1.1 + b.spd * 0.4) * (i % 2 ? 1 : -1);
         const rad = 60 + (i % 7) * 20 + Math.sin(t * 2 + i) * 14;
         [tx, ty] = [this.center.x + Math.cos(a) * rad, this.center.y + Math.sin(a) * rad * 0.7];
       } else if (this.mode === 'build' && active.length) {
-        const L = active[i % active.length];
-        const role = Math.floor(i / active.length);
-        [tx, ty] = this.targetFor(L.r, Math.max(0, L.p), role, L.j.bars, i, t);
+        const L = active[b.q % active.length];
+        [tx, ty] = this.targetFor(b, L, Math.floor(b.q / active.length), now, t);
       } else {
-        const ang = Math.atan2(b.vy || 0.1, b.vx || 0.1);
-        [tx, ty] = [b.x + Math.cos(ang) * 600, b.y + Math.sin(ang) * 600 - 200];
+        [tx, ty] = [b.ex, b.ey];
       }
       const dx = tx - b.x, dy = ty - b.y;
       const dist = Math.hypot(dx, dy) || 1;
-      const max = this.mode === 'leave' ? 18 : 14;
+      const max = (this.mode === 'leave' ? 12 + t * 8 : 14) * b.spd;
       const speed = Math.min(max, dist * 0.14);
       let ax = (dx / dist) * speed - b.vx, ay = (dy / dist) * speed - b.vy;
       for (let o = 0; o < this.boids.length; o += 3) {
@@ -220,20 +305,35 @@ class Flock {
         const sx = b.x - n.x, sy = b.y - n.y, sd = sx * sx + sy * sy;
         if (sd > 0 && sd < 200) { ax += (sx / sd) * 14; ay += (sy / sd) * 14; }
       }
-      b.vx += ax * 0.22; b.vy += ay * 0.22;
+      const g = 0.22 * b.gain;
+      b.vx += ax * g; b.vy += ay * g;
       b.x += b.vx; b.y += b.vy;
+      if (b.insp && !b.clicked && dist < 6) { b.clicked = true; b.clickAt = now; b.cx = b.x; b.cy = b.y; }
+      this.drawClick(b, now);
       this.drawCursor(b);
     });
 
     if (this.mode === 'build' && this.jobs.length === 0) this.setMode('leave');
-    if (this.mode === 'leave' && t > 1.2) {
-      this.boids.forEach((b, i) => Object.assign(b, this.spawn(i), { c: b.c }));
+    // Only stop once every cursor has actually flown off the screen.
+    if (this.mode === 'leave' && (this.boids.every((b) => this.offscreen(b)) || t > 8)) {
+      this.boids.forEach((b) => this.place(b));
       this.stop();
       runner.next();
       return;
     }
     this.raf = requestAnimationFrame(this.frame);
   };
+
+  drawClick(b: Boid, now: number) {
+    const k = (now - b.clickAt) / 380;
+    if (k < 0 || k > 1) return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = 1 - k;
+    ctx.strokeStyle = b.c; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(b.cx, b.cy, 3 + k * 11, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
 
   drawCursor(b: Boid) {
     // Real cursors never rotate: they always point up-left, like in a design tool.
@@ -331,7 +431,7 @@ const runner = {
   busy: false,
   intro: true,
   addJob(f: Flock, el: HTMLElement, start: number) {
-    f.jobs.push({ el, start, dur: JOB_MS, revealed: false, built: false, bars: barsFor(el) });
+    f.jobs.push({ el, title: el.matches('[data-scramble]') ? el : el.querySelector<HTMLElement>('[data-scramble]'), start, dur: JOB_MS, revealed: false, built: false, bars: barsFor(el) });
   },
   push(el: HTMLElement) {
     if (el.classList.contains('is-built') || this.queue.includes(el) || this.flock?.jobs.some((j) => j.el === el)) return;
@@ -396,6 +496,46 @@ function start() {
   const skip = () => { if (runner.flock?.mode === 'orbit') runner.flock.setMode('build'); };
   addEventListener('pointerdown', skip, { once: true });
   addEventListener('keydown', skip, { once: true });
+  // Each block is built once. Anything the visitor already scrolled past (a jump from the menu,
+  // a fast scroll) just appears, so going back up never brings the cursors back.
+  let ticking = false;
+  addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      document.querySelectorAll<HTMLElement>('[data-build]:not(.is-built)').forEach((el) => {
+        if (el.getBoundingClientRect().bottom < 0 && !runner.flock?.jobs.some((j) => j.el === el)) { io?.unobserve(el); markBuilt(el, false); }
+      });
+    });
+  }, { passive: true });
+  autoScroll();
+}
+
+/* ---------- auto tour: if the visitor stays still, walk them down the page ----------
+ * After a few idle seconds (and once the cursors finished the current blocks) the page glides to the
+ * next block that hasn't been built yet. Any wheel, touch, key or click pauses it; it stops at the end. */
+const IDLE_MS = 4500;
+function autoScroll() {
+  let last = performance.now();
+  let done = false;
+  const poke = () => { last = performance.now(); };
+  ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach((e) => addEventListener(e, poke, { passive: true }));
+  const tick = () => {
+    if (done || !fxOn()) return;
+    const idle = performance.now() - last > IDLE_MS;
+    const working = runner.busy || (runner.flock && runner.flock.mode !== 'off');
+    if (idle && !working) {
+      const next = Array.from(document.querySelectorAll<HTMLElement>('[data-build]:not(.is-built)'))
+        .find((el) => el.getBoundingClientRect().top > innerHeight * 0.5);
+      const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 4;
+      if (!next || atEnd) { done = true; return; }
+      scrollTo({ top: scrollY + next.getBoundingClientRect().top - innerHeight * 0.18, behavior: 'smooth' });
+      last = performance.now() - IDLE_MS + 1800; // short pause after each step, then the next one
+    }
+    setTimeout(tick, 400);
+  };
+  setTimeout(tick, 400);
 }
 
 /* ---------- effects toggle ---------- */
