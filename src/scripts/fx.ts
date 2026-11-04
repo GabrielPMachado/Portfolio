@@ -92,6 +92,7 @@ type Boid = {
   spd: number; gain: number; lag: number; // personality: top speed, reaction, delay
   enterAt: number; ex: number; ey: number; // when it flies in, where it flies out
   hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
+  clk: number; due: number; was: boolean; // how often this cursor clicks, and when its next click may land
 };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
@@ -244,6 +245,7 @@ class Flock {
   center = { x: 0, y: 0 };
   loader = false;
   crews = 3;
+  lastClick = 0;
   seq = 0;
 
   constructor() {
@@ -267,6 +269,7 @@ class Flock {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.62, 0.9), seed: Math.random() * Math.PI * 2, rot: 0,
         kind, q, crew, spd: rnd(0.85, 1.35), gain: rnd(0.7, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
+        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false,
       };
       this.place(b);
       this.boids.push(b);
@@ -351,10 +354,15 @@ class Flock {
 
   /** Reviewer: hops between spots of the piece, pauses and clicks, at its own pace. */
   inspect(b: Boid, r: DOMRect, now: number): [number, number] {
+    // first time on a piece: start at a random point of its own rhythm, so no two cursors move in step
+    if (!b.was) b.hopUntil = now + rnd(0, 1100);
     b.insp = true;
     if (now > b.hopUntil) {
       b.hx = rnd(-0.1, 1.1); b.hy = rnd(-0.2, 1.2);
-      b.hopUntil = now + rnd(350, 1000); b.clicked = false;
+      b.hopUntil = now + rnd(450, 1600);
+      // only some cursors click, only on some stops, and each after its own pause
+      b.clicked = Math.random() >= b.clk;
+      b.due = now + rnd(120, 600);
     }
     return [r.left + r.width * b.hx, r.top + r.height * b.hy];
   }
@@ -458,11 +466,6 @@ class Flock {
     const gone = new Set(live.filter(({ p }) => p >= 1.2).map(({ j }) => j));
     this.jobs = this.jobs.filter((j) => !gone.has(j));
     const shown = live.filter((L) => L.p >= 0 && L.p < 1.2 && L.r.bottom > -40 && L.r.top < this.h + 40);
-    // the long red guide on the left margin while anything is being built
-    if (shown.some((L) => L.p < 1)) {
-      const x = Math.round(Math.min(...shown.map((L) => L.r.left)) - 14);
-      ctx.fillStyle = 'rgba(255,74,74,.75)'; ctx.fillRect(x, 0, 1, this.h);
-    }
     for (const L of shown) this.drawJob(L, now);
     if (this.loader) this.drawLoader(t);
 
@@ -474,6 +477,7 @@ class Flock {
       : [];
     this.boids.forEach((b, i) => {
       if (now < b.enterAt) return; // still waiting off screen for its turn to come in
+      b.was = b.insp; // inspecting last frame?
       b.insp = false;
       let tx: number, ty: number;
       if (this.mode === 'wait' && review.length) {
@@ -520,7 +524,10 @@ class Flock {
       let da = want - b.rot;
       da = Math.atan2(Math.sin(da), Math.cos(da));
       b.rot += da * 0.25;
-      if (b.insp && !b.clicked && dist < 6) { b.clicked = true; b.clickAt = now; b.cx = b.x; b.cy = b.y; }
+      // at most one click starts every ~180 ms in the whole flock: never a row of clicks at once
+      if (b.insp && !b.clicked && dist < 6 && now >= b.due && now - this.lastClick > 180) {
+        b.clicked = true; b.clickAt = now; b.cx = b.x; b.cy = b.y; this.lastClick = now;
+      }
       this.drawClick(b, now);
       this.drawCursor(b, v);
     });
@@ -600,8 +607,6 @@ class Flock {
       ctx.fillStyle = BLUE;
       ctx.fillRect(0, Math.round(r.top), this.w, 1);
       ctx.fillRect(0, Math.round(r.top + h), this.w, 1);
-      ctx.fillStyle = RED;
-      ctx.fillRect(Math.round(r.left + w), 0, 1, this.h);
       ctx.globalAlpha = fade;
     }
 
@@ -735,8 +740,11 @@ const runner = {
   push(el: HTMLElement) {
     if (el.classList.contains('is-built') || el.classList.contains('is-revealing') || this.queue.includes(el)) return;
     this.queue.push(el);
-    // keep the line in page order, whatever order the blocks came into view
-    this.queue.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    // keep the line in visual order, top to bottom (then left to right), whatever the order in the code
+    this.queue.sort((a, b) => {
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      return Math.abs(ra.top - rb.top) > 8 ? ra.top - rb.top : ra.left - rb.left;
+    });
     if (this.current) return; // the current block finishes first
     const f = this.flock;
     if (this.busy && f && (f.mode === 'build' || f.mode === 'wait' || f.mode === 'leave')) { this.take(f, performance.now() + 120); return; }
