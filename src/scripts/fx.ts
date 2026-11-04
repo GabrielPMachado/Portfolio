@@ -98,6 +98,8 @@ type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
   start: number; dur: number; revealed: boolean; built: boolean; lines: number; lh: number;
   rad: number[]; ln: Box[]; parts: Box[]; fs: number; shell: boolean; col?: string;
+  since?: number; // when it started waiting for its cursor
+  nb: number; // not before: a piece starts only when its cursor has arrived (start stays Infinity until then)
 };
 /** A shape measured from the real layout, relative to the piece's top-left. rad < 0 marks a text bar. */
 type Box = { x: number; y: number; w: number; h: number; rad: number[]; fill: boolean; text?: boolean; col?: string; media?: boolean };
@@ -183,7 +185,7 @@ function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 type Live = { j: Job; r: DOMRect; p: number };
 
 /** How many cursors build the site. */
-const CURSORS = { desktop: 8, mobile: 6 };
+const CURSORS = { desktop: 12, mobile: 10 };
 const COLORS = ['#1E8BFF', '#5FB0FF', '#FFB224', '#FF4A4A', '#34D399', '#C084FC', '#F472B6'];
 const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -261,7 +263,7 @@ class Flock {
     // The flock is split into crews, each a full team. A piece is always built by the same crew.
     const n = innerWidth < 720 ? CURSORS.mobile : CURSORS.desktop;
     // a small flock works as a single crew, so every crew still has the whole team
-    this.crews = n >= 24 ? (innerWidth < 720 ? 2 : 3) : n >= 12 ? (innerWidth < 720 ? 1 : 2) : 1;
+    this.crews = n >= 24 ? (innerWidth < 720 ? 2 : 3) : 1;
     const team: [Kind, number, number][] = [];
     for (let c = 0; c < this.crews; c++) {
       const seen: Partial<Record<Kind, number>> = {};
@@ -290,9 +292,9 @@ class Flock {
     const parts = kind === 'visual' ? partsOf(el, r) : [];
     const own = paints(el);
     const lines = ln.length ? Math.min(14, ln.length) : Math.max(1, Math.min(10, Math.round(r.height / lh)));
-    const dur = kind === 'visual' ? 2300 : kind === 'small' ? 900 : kind === 'title' ? 1350 : Math.min(2600, 900 + lines * 300);
+    const dur = kind === 'visual' ? 1900 : kind === 'small' ? 750 : kind === 'title' ? 1150 : Math.min(2200, 800 + lines * 260);
     el.classList.add('atom-wait');
-    this.jobs.push({ seq: this.seq++, el, host, kind, start, dur, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col });
+    this.jobs.push({ seq: this.seq++, el, host, kind, start: Infinity, nb: start, dur, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col });
     this.left.set(host, (this.left.get(host) ?? 0) + 1);
   }
 
@@ -361,7 +363,7 @@ class Flock {
     if (!b.was) b.hopUntil = now + rnd(0, 1100);
     b.insp = true;
     if (now > b.hopUntil) {
-      b.hx = rnd(-0.1, 1.1); b.hy = rnd(-0.2, 1.2);
+      b.hx = rnd(0.06, 0.94); b.hy = rnd(0.1, 0.9);
       b.hopUntil = now + rnd(450, 1600);
       // only some cursors click, only on some stops, and each after its own pause
       b.clicked = Math.random() >= b.clk;
@@ -380,6 +382,29 @@ class Flock {
   }
 
   /** Where a cursor should be, given its job in the team and the piece it is working on. */
+  /** The cursor that opens every piece of a crew: its first frame cursor. */
+  lead(crew: number) { return this.boids.find((b) => b.crew === crew && b.kind === 'frame' && b.q === 0) ?? this.boids.find((b) => b.crew === crew)!; }
+
+  /** The next piece waiting for its cursor (the previous piece of its block is finished). */
+  pending(now: number): Job | null {
+    for (const j of this.jobs) {
+      if (j.start !== Infinity) { if (!j.built) return null; continue; } // a piece is still being built: wait for it
+      return now >= j.nb ? j : null;
+    }
+    return null;
+  }
+
+  gate(now: number) {
+    const j = this.pending(now);
+    if (!j) return;
+    const b = this.lead(j.seq % this.crews);
+    const r = j.el.getBoundingClientRect();
+    const arrived = Math.hypot(b.x - r.left, b.y - r.top) < 14 && now >= b.enterAt;
+    j.since ??= now;
+    // safety net: never wait forever (cursor off screen, piece far away)
+    if (arrived || now - j.since > 3500) j.start = now;
+  }
+
   targetFor(b: Boid, L: Live, sub: number, now: number, t: number): [number, number] {
     const { r, j } = L;
     const ph = PH[j.kind];
@@ -398,7 +423,7 @@ class Flock {
           const [cx, cy] = this.caret(L);
           return [cx + 3, cy + j.lh * 0.9];
         }
-        if (j.kind === 'title') return [r.left + r.width * (0.3 + 0.6 * band(p, ph.r0, ph.r1)) + wob * 6, r.top + r.height * (0.55 + 0.25 * Math.sin(t * 9))];
+        if (j.kind === 'title') return [r.left + r.width * (0.3 + 0.6 * band(p, ph.r0, ph.r1)) + wob * 6, r.top + r.height * (0.55 + 0.15 * Math.sin(t * 1.6 + b.seed))];
         return [r.left + r.width * ease(band(p, ph.r0, ph.r1)), r.bottom - 6 + wob * 4];
       }
       case 'bar': { // carries placeholder lines into text, or works the grid of an image
@@ -418,7 +443,7 @@ class Flock {
       }
       case 'guide': { // holds the guide lines
         if (p > ph.r1 || j.kind === 'small') break;
-        const reach = 24 + 50 * (0.5 + 0.5 * wob);
+        const reach = 14 + 16 * (0.5 + 0.5 * wob);
         if (sub % 3 === 0) return [r.left - reach, r.top + r.height * d];
         if (sub % 3 === 1) return [r.left + r.width * d + reach, r.top];
         return [r.left + r.width * d, r.top - reach * 0.7];
@@ -429,7 +454,7 @@ class Flock {
       case 'type': // stays close to the text while it comes in
         if (p > ph.r1 || j.kind === 'visual') break;
         if (j.kind === 'text' && p > ph.r0) { const [cx, cy] = this.caret(L); return [cx - 18 - sub * 16, cy + j.lh + 6 + wob * 3]; }
-        return [r.left + r.width * ((0.15 + 0.3 * sub + 0.08 * Math.floor(t * 3)) % 1), r.top - 12 + wob * 4];
+        return [r.left + r.width * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * 0.5 + sub * 2 + b.seed))), r.top - 12 + wob * 3];
     }
     return this.inspect(b, r, now);
   }
@@ -463,6 +488,8 @@ class Flock {
     ctx.clearRect(0, 0, this.w, this.h);
     const t = (now - this.modeStart) / 1000;
 
+    // One piece at a time, and only once its lead cursor is standing on the piece's corner.
+    this.gate(now);
     const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur }));
     live.forEach((L) => this.reveal(L));
     // keep jobs added while revealing (the next block starts the moment the current one ends)
@@ -472,6 +499,8 @@ class Flock {
     for (const L of shown) this.drawJob(L, now);
     if (this.loader) this.drawLoader(t);
 
+    // a piece is waiting for its cursor: the flock is at work, whatever it was doing
+    if ((this.mode === 'wait' || this.mode === 'leave') && this.pending(now)) this.setMode('build');
     // steering: each cursor does its own job on one of the pieces being built
     const active = live.filter((l) => l.p > -0.1 && l.p < 1);
     const review = this.mode === 'wait'
@@ -483,7 +512,15 @@ class Flock {
       b.was = b.insp; // inspecting last frame?
       b.insp = false;
       let tx: number, ty: number;
-      if (this.mode === 'wait' && review.length) {
+      const wait = this.mode !== 'orbit' ? this.pending(now) : null;
+      const leading = !!wait && b === this.lead(wait.seq % this.crews);
+      let glue = false;
+      if (leading) {
+        // the lead flies to the top-left corner of the next piece; the piece only starts once it is there
+        const wr = wait!.el.getBoundingClientRect();
+        [tx, ty] = [wr.left, wr.top];
+        glue = Math.hypot(tx - b.x, ty - b.y) < 40;
+      } else if (this.mode === 'wait' && review.length) {
         [tx, ty] = this.inspect(b, review[(b.crew * 5 + b.q + i) % review.length], now);
       } else if (this.mode === 'orbit' || this.mode === 'wait' || (this.mode === 'build' && !active.length && live.length)) {
         if (this.mode === 'wait') this.center = { x: this.w / 2, y: this.h - 90 };
@@ -501,6 +538,9 @@ class Flock {
         if (mine.length) {
           const L = mine[b.q % mine.length];
           [tx, ty] = this.targetFor(b, L, Math.floor(b.q / mine.length), now, t);
+          // the cursors doing the work (dragging the box, typing) stay exactly on their point
+          const ph = PH[L.j.kind];
+          glue = (b === this.lead(b.crew) || (b.kind === 'sweep' && b.q === 0)) && L.p >= 0 && L.p <= ph.r1;
         } else {
           const near = active.reduce((m, l) => (Math.hypot(l.r.left + l.r.width / 2 - b.x, l.r.top + l.r.height / 2 - b.y) < Math.hypot(m.r.left + m.r.width / 2 - b.x, m.r.top + m.r.height / 2 - b.y) ? l : m));
           [tx, ty] = this.inspect(b, near.r, now);
@@ -510,23 +550,26 @@ class Flock {
       }
       const dx = tx - b.x, dy = ty - b.y;
       const dist = Math.hypot(dx, dy) || 1;
-      const max = (this.mode === 'leave' ? 14 + t * 8 : 18) * b.spd;
-      const speed = Math.min(max, dist * 0.16);
+      // glide: ease toward the target, slowing down smoothly as it gets close
+      const max = (this.mode === 'leave' ? 9 + t * 4 : leading ? 16 : 11) * b.spd;
+      const speed = Math.min(max, dist * 0.09);
       let ax = (dx / dist) * speed - b.vx, ay = (dy / dist) * speed - b.vy;
-      for (let o = 0; o < this.boids.length; o += 3) {
+      // the lead and the cursors at work hold their point: they are not pushed around by the others
+      for (let o = 0; !leading && !glue && o < this.boids.length; o += 3) {
         const n = this.boids[(i + o + 1) % this.boids.length];
         const sx = b.x - n.x, sy = b.y - n.y, sd = sx * sx + sy * sy;
-        if (sd > 0 && sd < 160) { ax += (sx / sd) * 12; ay += (sy / sd) * 12; }
+        if (sd > 0 && sd < 160) { ax += (sx / sd) * 4; ay += (sy / sd) * 4; }
       }
-      const g = 0.24 * b.gain;
-      b.vx += ax * g; b.vy += ay * g;
-      b.x += b.vx; b.y += b.vy;
-      // in flight a cursor turns to point where it's going; when it slows down it rights itself
+      const g = 0.1 + 0.04 * b.gain;
+      if (glue && dist < 40) {
+        // on the job: follow the work point closely instead of flying around it
+        const nx = b.x + dx * 0.3, ny = b.y + dy * 0.3;
+        b.vx = nx - b.x; b.vy = ny - b.y; b.x = nx; b.y = ny;
+      } else {
+        b.vx += ax * g; b.vy += ay * g;
+        b.x += b.vx; b.y += b.vy;
+      }
       const v = Math.hypot(b.vx, b.vy);
-      const want = v > 2.2 ? Math.atan2(b.vy, b.vx) + Math.PI * 0.75 : 0;
-      let da = want - b.rot;
-      da = Math.atan2(Math.sin(da), Math.cos(da));
-      b.rot += da * 0.25;
       // at most one click starts every ~180 ms in the whole flock: never a row of clicks at once
       if (b.insp && !b.clicked && dist < 6 && now >= b.due && now - this.lastClick > 180) {
         b.clicked = true; b.clickAt = now; b.cx = b.x; b.cy = b.y; this.lastClick = now;
@@ -575,18 +618,10 @@ class Flock {
       ctx.moveTo(0, 0); ctx.lineTo(0, 13); ctx.lineTo(3.6, 9.6); ctx.lineTo(6.4, 15); ctx.lineTo(8.2, 14.1); ctx.lineTo(5.5, 8.9); ctx.lineTo(10, 8.9);
       ctx.closePath();
     };
-    // a short motion trail while flying fast
-    if (v > 6) {
-      for (let k = 2; k >= 1; k--) {
-        ctx.save();
-        ctx.globalAlpha = 0.14 * (3 - k);
-        ctx.translate(b.x - b.vx * k * 0.6, b.y - b.vy * k * 0.6); ctx.rotate(b.rot); ctx.scale(b.s, b.s);
-        shape(); ctx.fillStyle = b.c; ctx.fill();
-        ctx.restore();
-      }
-    }
+    // always upright, like a real mouse pointer: it glides, it never spins
+    void v;
     ctx.save();
-    ctx.translate(b.x, b.y); ctx.rotate(b.rot); ctx.scale(b.s, b.s);
+    ctx.translate(b.x, b.y); ctx.scale(b.s, b.s);
     shape();
     ctx.fillStyle = b.c; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
