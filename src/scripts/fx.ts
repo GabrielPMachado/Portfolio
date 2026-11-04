@@ -101,6 +101,7 @@ type Job = {
   rad: number[]; ln: Box[]; parts: Box[]; fs: number; shell: boolean; col?: string;
   since?: number; // when it started waiting for its cursor
   nb: number; // not before: a piece starts only when its cursor has arrived (start stays Infinity until then)
+  pre: number; // how far the helpers already sketched it ahead of its turn (never past the outline)
 };
 /** A shape measured from the real layout, relative to the piece's top-left. rad < 0 marks a text bar. */
 type Box = { x: number; y: number; w: number; h: number; rad: number[]; fill: boolean; text?: boolean; col?: string; media?: boolean };
@@ -252,6 +253,10 @@ class Flock {
   crews = 3;
   lastClick = 0;
   blocks: DOMRect[] = []; // the blocks on screen this frame, where the helpers spread out
+  drafts = new Map<HTMLElement, Job[]>(); // sketches of the blocks still in line
+  sketching: HTMLElement[] = []; // blocks in line, on screen, that helpers can sketch
+  helped = new Map<HTMLElement, number>(); // last time a helper was working on a block in line
+  lastT = 0;
   seq = 0;
 
   constructor() {
@@ -291,6 +296,16 @@ class Flock {
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
+    const j = this.makeJob(el, host, start);
+    // a piece the helpers already sketched carries on from that sketch
+    j.pre = this.drafts.get(host)?.find((d) => d.el === el)?.pre ?? 0;
+    j.seq = this.seq++;
+    el.classList.add('atom-wait');
+    this.jobs.push(j);
+    this.left.set(host, (this.left.get(host) ?? 0) + 1);
+  }
+
+  makeJob(el: HTMLElement, host: HTMLElement, start: number): Job {
     const kind = kindOf(el);
     const r = el.getBoundingClientRect();
     const lh = parseFloat(getComputedStyle(el).lineHeight) || 24;
@@ -302,9 +317,28 @@ class Flock {
     const own = paints(el);
     const lines = ln.length ? Math.min(14, ln.length) : Math.max(1, Math.min(10, Math.round(r.height / lh)));
     const dur = kind === 'visual' ? 1900 : kind === 'small' ? 750 : kind === 'title' ? 1150 : Math.min(2200, 800 + lines * 260);
-    el.classList.add('atom-wait');
-    this.jobs.push({ seq: this.seq++, el, host, kind, start: Infinity, nb: start, dur, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col });
-    this.left.set(host, (this.left.get(host) ?? 0) + 1);
+    return { seq: -1, el, host, kind, start: Infinity, nb: start, dur, pre: 0, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col };
+  }
+
+  /** Blocks waiting in line get sketched by the helpers working on them, but only up to the outline:
+   *  the box is dragged out and the draft drawn, nothing is revealed until the block's real turn. */
+  sketch(now: number) {
+    const dt = Math.min(50, now - (this.lastT || now));
+    this.lastT = now;
+    const line = runner.queue.filter((el) => !el.classList.contains('is-built') && !el.classList.contains('is-revealing'));
+    for (const host of Array.from(this.drafts.keys())) if (!line.includes(host)) this.drafts.delete(host);
+    this.sketching = [];
+    if (this.mode !== 'build') return;
+    for (const host of line) {
+      const hr = host.getBoundingClientRect();
+      if (hr.bottom < 60 || hr.top > this.h - 40) continue;
+      let ds = this.drafts.get(host);
+      if (!ds) { ds = atoms(host).map((a) => this.makeJob(a, host, 0)); this.drafts.set(host, ds); }
+      this.sketching.push(host);
+      // one piece after the other, slower than the real build, and never past the outline
+      const j = ds.find((d) => d.pre < PH[d.kind].d);
+      if (j && this.helped.get(host)! > now - 120) j.pre = Math.min(PH[j.kind].d, j.pre + (dt / j.dur) * 0.45);
+    }
   }
 
   /** A point just outside one screen edge (0 left, 1 right, 2 top, 3 bottom), f along that edge. */
@@ -417,7 +451,7 @@ class Flock {
     const arrived = Math.hypot(b.x - r.left, b.y - r.top) < 14 && now >= b.enterAt;
     j.since ??= now;
     // safety net: never wait forever (cursor off screen, piece far away)
-    if (arrived || now - j.since > 3500) j.start = now;
+    if (arrived || now - j.since > 3500) j.start = now - j.pre * j.dur;
   }
 
   targetFor(b: Boid, L: Live, sub: number, now: number, t: number): [number, number] {
@@ -478,6 +512,12 @@ class Flock {
    *  another block on screen (built or still to come), so the swarm is spread over the page. */
   spot(b: Boid, r: DOMRect): DOMRect {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    if (b.slot % 3 !== 0 && this.sketching.length) {
+      // first the blocks still in line: the helpers sketch them a little ahead of their turn
+      const host = this.sketching[(b.slot + b.crew) % this.sketching.length];
+      this.helped.set(host, performance.now());
+      return host.getBoundingClientRect();
+    }
     const others = this.blocks.filter((rc) => !(cx >= rc.left && cx <= rc.right && cy >= rc.top && cy <= rc.bottom));
     if (!others.length || b.slot % 3 === 0) return r;
     return others[(b.slot + b.crew) % others.length];
@@ -514,7 +554,8 @@ class Flock {
 
     // One piece at a time, and only once its lead cursor is standing on the piece's corner.
     this.gate(now);
-    const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur }));
+    this.sketch(now);
+    const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: j.start === Infinity ? (j.pre > 0 ? j.pre : -Infinity) : (now - j.start) / j.dur }));
     this.blocks = Array.from(document.querySelectorAll<HTMLElement>('[data-build]')).map((el) => el.getBoundingClientRect())
       .filter((rc) => rc.bottom > 60 && rc.top < this.h - 40 && rc.width > 30 && rc.height > 20);
     live.forEach((L) => this.reveal(L));
@@ -523,12 +564,13 @@ class Flock {
     this.jobs = this.jobs.filter((j) => !gone.has(j));
     const shown = live.filter((L) => L.p >= 0 && L.p < 1.2 && L.r.bottom > -40 && L.r.top < this.h + 40);
     for (const L of shown) this.drawJob(L, now);
+    for (const host of this.sketching) for (const j of this.drafts.get(host)!) if (j.pre > 0) this.drawJob({ j, r: j.el.getBoundingClientRect(), p: j.pre }, now);
     if (this.loader) this.drawLoader(t);
 
     // a piece is waiting for its cursor: the flock is at work, whatever it was doing
     if ((this.mode === 'wait' || this.mode === 'leave') && this.pending(now)) this.setMode('build');
     // steering: each cursor does its own job on one of the pieces being built
-    const active = live.filter((l) => l.p > -0.1 && l.p < 1);
+    const active = live.filter((l) => l.j.start !== Infinity && l.p > -0.1 && l.p < 1);
     const review = this.mode === 'wait'
       ? Array.from(document.querySelectorAll<HTMLElement>('[data-build].is-built')).map((el) => el.getBoundingClientRect())
           .filter((rc) => rc.top > 40 && rc.top < this.h - 60 && rc.height > 30)
@@ -669,7 +711,8 @@ class Flock {
 
     // guides follow the box while it is dragged
     const g = band(p, 0, 0.06) * (1 - band(p, ph.r0, ph.r1));
-    if (g > 0 && j.kind !== 'small') {
+    // (not for sketches of blocks still in line: only the piece really being built gets the guides)
+    if (g > 0 && j.kind !== 'small' && j.seq >= 0) {
       ctx.globalAlpha = fade * g * 0.55;
       ctx.fillStyle = BLUE;
       ctx.fillRect(0, Math.round(r.top), this.w, 1);
