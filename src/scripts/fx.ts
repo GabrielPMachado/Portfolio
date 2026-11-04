@@ -342,7 +342,7 @@ class Flock {
     });
 
     // While the page is touring by itself the flock hangs around for the next block instead of leaving.
-    if (this.mode === 'build' && this.jobs.length === 0) this.setMode(touring ? 'wait' : 'leave');
+    if (this.mode === 'build' && this.jobs.length === 0) this.setMode('leave'); // the flock only builds the opening, then flies off
     if (this.mode === 'wait' && !touring) this.setMode('leave');
     // Only stop once every cursor has actually flown off the screen.
     if (this.mode === 'leave' && (this.boids.every((b) => this.offscreen(b)) || t > 8)) {
@@ -453,6 +453,29 @@ class Flock {
   }
 }
 
+/* ---------- calm entrance: pieces of a block rise in one after the other ---------- */
+function atoms(el: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const kids = Array.from(el.children) as HTMLElement[];
+  if (!kids.length || el.classList.contains('case-visual')) return [el];
+  for (const k of kids) {
+    if (k.matches('.grid-bg, .sel-box, [aria-hidden="true"]:empty')) continue;
+    const lines = k.querySelectorAll<HTMLElement>(':scope > .line, :scope > .dim');
+    if (lines.length) { out.push(...lines); continue; }
+    if (k.matches('ul, ol, dl')) { out.push(...(Array.from(k.children) as HTMLElement[])); continue; }
+    if (k.matches('.sec-head, header, div') && k.children.length && !k.matches('.path, .hero-cta')) { out.push(...atoms(k)); continue; }
+    out.push(k);
+  }
+  return out;
+}
+function softIn(el: HTMLElement) {
+  if (el.classList.contains('is-built')) return;
+  const list = atoms(el);
+  list.forEach((a, i) => { a.style.setProperty('--i', String(Math.min(i, 14))); a.classList.add('rise'); });
+  el.classList.add('is-built', 'soft');
+  setTimeout(() => list.forEach((a) => { a.classList.remove('rise'); a.style.removeProperty('--i'); }), 2600);
+}
+
 /* ---------- runner: queue blocks as they enter the screen ---------- */
 const STAGGER = 420;
 const runner = {
@@ -519,7 +542,12 @@ function start() {
   if (!fxOn()) { finishAll(); return; }
   io = new IntersectionObserver((entries) => {
     entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-      .forEach((e) => { io?.unobserve(e.target); runner.push(e.target as HTMLElement); });
+      .forEach((e) => {
+        io?.unobserve(e.target);
+        const el = e.target as HTMLElement;
+        // The flock builds the opening; everything after enters calmly, line by line.
+        if (el.closest('.hero')) runner.push(el); else softIn(el);
+      });
   }, { threshold: 0.2 });
   document.querySelectorAll<HTMLElement>('[data-build]').forEach((el) => io!.observe(el));
   // Skip the opening if the visitor clicks or types: they want the content.

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useSteps } from './useDemo';
+import DemoCursor from './DemoCursor';
 
 type Props = { lang: 'pt' | 'en' };
 
@@ -28,8 +29,9 @@ export default function VerticeDemo({ lang }: Props) {
         </div>
       </div>
       <div className="vx-dots">
-        {colors.map((c, i) => <i key={c} className={i === step ? 'on' : ''} style={{ background: i === step ? colors[step] : undefined }} />)}
+        {colors.map((c, i) => <i key={c} className={i === step ? 'on' : ''} data-hot={i === (step + 1) % 5 ? '' : undefined} style={{ background: i === step ? colors[step] : undefined }} />)}
       </div>
+      <DemoCursor host={ref} beat={step} />
     </div>
   );
 }

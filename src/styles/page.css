@@ -124,6 +124,11 @@ html.no-fx .tech-track { animation-play-state: paused; }
 
 /* ---------- demos ---------- */
 .demo { position: absolute; inset: 0; overflow: hidden; border-radius: 16px; font-size: 13px; }
+.dc { position: absolute; z-index: 5; width: 0; height: 0; pointer-events: none; transition: left .7s cubic-bezier(.45,.05,.25,1), top .7s cubic-bezier(.45,.05,.25,1); }
+.dc svg { position: absolute; left: -1px; top: -1px; max-width: none; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.dc-click { position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.85); animation: dc-click .5s ease-out both; }
+@keyframes dc-click { from { transform: scale(.3); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.demo [data-hot] { outline: 1px solid rgba(255,255,255,.22); outline-offset: 2px; transition: outline-color .3s; }
 .demo-cursor { position: absolute; width: 14px; height: 18px; transition: left .7s cubic-bezier(.3,.7,.2,1), top .7s cubic-bezier(.3,.7,.2,1); background: var(--blue); clip-path: polygon(0 0, 0 72%, 26% 54%, 46% 100%, 60% 94%, 40% 50%, 72% 50%); }
 
 /* Financy */

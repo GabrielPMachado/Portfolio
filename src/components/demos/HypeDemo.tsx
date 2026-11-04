@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useTicker } from './useDemo';
+import DemoCursor from './DemoCursor';
 
 type Props = { lang: 'pt' | 'en' };
 
@@ -37,7 +38,7 @@ export default function HypeDemo({ lang }: Props) {
           <path className="thin" d="M-5 45 L105 47 M14 -5 L10 105 M52 -5 L55 105 M90 -5 L92 105" />
         </svg>
         {venues.map((v, i) => (
-          <span key={v.n} className={`hy-spot ${flash === i ? 'flash' : ''}`} style={{ left: `${v.x}%`, top: `${v.y}%`, ['--c' as string]: tone[level[i]], ['--r' as string]: `${46 + level[i] * 26}px` }} />
+          <span key={v.n} className={`hy-spot ${flash === i ? 'flash' : ''}`} data-hot={flash === i ? '' : undefined} style={{ left: `${v.x}%`, top: `${v.y}%`, ['--c' as string]: tone[level[i]], ['--r' as string]: `${46 + level[i] * 26}px` }} />
         ))}
       </div>
       <div className="hy-list">
@@ -52,6 +53,7 @@ export default function HypeDemo({ lang }: Props) {
           ))}
         </ol>
       </div>
+      <DemoCursor host={ref} beat={flash + ':' + level.join('')} />
     </div>
   );
 }
