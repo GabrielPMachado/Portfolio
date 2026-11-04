@@ -7,14 +7,14 @@ const labels = {
   pt: { head: 'Cidade Baixa · agora', s: ['Tranquilo', 'Movimentado', 'Lotado'] },
   en: { head: 'Cidade Baixa · now', s: ['Quiet', 'Busy', 'Packed'] },
 };
-// generic venue names: the demo illustrates the idea, not real bars
+// real bars of Cidade Baixa, Porto Alegre (crowd levels in the demo are simulated)
 const venues = [
-  { n: 'Esquina', x: 34, y: 30 },
-  { n: 'Varanda', x: 68, y: 40 },
-  { n: 'Porão', x: 48, y: 60 },
-  { n: 'Terraço', x: 22, y: 74 },
-  { n: 'Quintal', x: 78, y: 76 },
-  { n: 'Sótão', x: 60, y: 18 },
+  { n: 'Parangolé', x: 34, y: 30 },
+  { n: 'Olivos 657', x: 68, y: 40 },
+  { n: 'Espaço 512', x: 48, y: 60 },
+  { n: 'A Virgem', x: 22, y: 74 },
+  { n: 'Boteco do Joaquim', x: 78, y: 76 },
+  { n: 'Opinião', x: 60, y: 18 },
 ];
 const tone = ['#34D399', '#FFB224', '#FF4A4A'];
 
@@ -46,7 +46,7 @@ export default function HypeDemo({ lang }: Props) {
           {ranking.slice(0, 5).map((v, k) => (
             <li key={v.n} style={{ ['--c' as string]: tone[v.l] }}>
               <span className="mono">{String(k + 1).padStart(2, '0')}</span>
-              <b>{v.n}<small>{t.s[v.l]}</small></b>
+              <b><span>{v.n}</span><small>{t.s[v.l]}</small></b>
               <i />
             </li>
           ))}
