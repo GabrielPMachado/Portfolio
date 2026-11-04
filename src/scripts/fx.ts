@@ -93,6 +93,7 @@ type Boid = {
   enterAt: number; ex: number; ey: number; // when it flies in, where it flies out
   hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
   clk: number; due: number; was: boolean; // how often this cursor clicks, and when its next click may land
+  slot: number; of: number; // its own part of the piece (one cell of a grid), out of how many in its crew
 };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
@@ -274,11 +275,18 @@ class Flock {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.62, 0.9), seed: Math.random() * Math.PI * 2, rot: 0,
         kind, q, crew, spd: rnd(0.85, 1.35), gain: rnd(0.7, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
-        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false,
+        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1,
       };
       this.place(b);
       this.boids.push(b);
     });
+    // every cursor of a crew gets its own part of the piece, so they spread out instead of piling on one spot
+    for (let c = 0; c < this.crews; c++) {
+      const crew = this.boids.filter((b) => b.crew === c);
+      const order = crew.map((_, k) => k);
+      for (let k = order.length - 1; k > 0; k--) { const m = (Math.random() * (k + 1)) | 0; [order[k], order[m]] = [order[m], order[k]]; }
+      crew.forEach((b, k) => { b.slot = order[k]; b.of = crew.length; });
+    }
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
@@ -359,17 +367,23 @@ class Flock {
 
   /** Reviewer: hops between spots of the piece, pauses and clicks, at its own pace. */
   inspect(b: Boid, r: DOMRect, now: number): [number, number] {
+    // the area a crew works over: the piece plus a margin, never smaller than a small button would leave
+    const mx = Math.min(28, 10 + r.width * 0.04), my = Math.min(22, 8 + r.height * 0.04);
+    const w = Math.max(r.width + mx * 2, 220), h = Math.max(r.height + my * 2, 120);
     // first time on a piece: start at a random point of its own rhythm, so no two cursors move in step
     if (!b.was) b.hopUntil = now + rnd(0, 1100);
     b.insp = true;
     if (now > b.hopUntil) {
-      b.hx = rnd(0.06, 0.94); b.hy = rnd(0.1, 0.9);
+      // each cursor hops only inside its own cell of a grid over that area, so they spread out
+      const cols = Math.max(1, Math.min(b.of, Math.round(Math.sqrt((b.of * w) / h))));
+      const rows = Math.ceil(b.of / cols);
+      b.hx = ((b.slot % cols) + rnd(0.2, 0.8)) / cols; b.hy = (Math.floor(b.slot / cols) + rnd(0.2, 0.8)) / rows;
       b.hopUntil = now + rnd(450, 1600);
       // only some cursors click, only on some stops, and each after its own pause
       b.clicked = Math.random() >= b.clk;
       b.due = now + rnd(120, 600);
     }
-    return [r.left + r.width * b.hx, r.top + r.height * b.hy];
+    return [r.left + r.width / 2 - w / 2 + w * b.hx, r.top + r.height / 2 - h / 2 + h * b.hy];
   }
 
   caret(L: Live): [number, number] {
@@ -525,14 +539,17 @@ class Flock {
       } else if (this.mode === 'orbit' || this.mode === 'wait' || (this.mode === 'build' && !active.length && live.length)) {
         if (this.mode === 'wait') this.center = { x: this.w / 2, y: this.h - 90 };
         if (this.mode === 'build') {
+          // between pieces: each cursor already takes its own part of the next piece, spread out over it
           const ref = live.find((l) => l.p <= -0.1) ?? live[live.length - 1];
           this.center = { x: ref.r.left + ref.r.width / 2, y: ref.r.top + ref.r.height / 2 };
-        }
+          [tx, ty] = this.inspect(b, ref.r, now);
+        } else {
         this.center = { x: Math.min(this.w - 60, Math.max(60, this.center.x)), y: Math.min(this.h - 60, Math.max(60, this.center.y)) };
         // a tight swirl, like a flock of birds turning around one point
         const a = b.seed + t * (2.2 + b.spd * 0.8);
         const rad = 34 + (i % 9) * 9 + Math.sin(t * 3 + i) * 10;
         [tx, ty] = [this.center.x + Math.cos(a) * rad, this.center.y + Math.sin(a) * rad * 0.8];
+        }
       } else if (this.mode === 'build' && active.length) {
         const mine = active.filter((l) => l.j.seq % this.crews === b.crew);
         if (mine.length) {
