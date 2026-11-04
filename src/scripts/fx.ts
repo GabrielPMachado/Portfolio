@@ -251,6 +251,7 @@ class Flock {
   loader = false;
   crews = 3;
   lastClick = 0;
+  blocks: DOMRect[] = []; // the blocks on screen this frame, where the helpers spread out
   seq = 0;
 
   constructor() {
@@ -470,7 +471,16 @@ class Flock {
         if (j.kind === 'text' && p > ph.r0) { const [cx, cy] = this.caret(L); return [cx - 18 - sub * 16, cy + j.lh + 6 + wob * 3]; }
         return [r.left + r.width * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * 0.5 + sub * 2 + b.seed))), r.top - 12 + wob * 3];
     }
-    return this.inspect(b, r, now);
+    return this.inspect(b, this.spot(b, r), now);
+  }
+
+  /** Where a helper works: not everyone on the piece being built. About a third stay on it, the rest each take
+   *  another block on screen (built or still to come), so the swarm is spread over the page. */
+  spot(b: Boid, r: DOMRect): DOMRect {
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const others = this.blocks.filter((rc) => !(cx >= rc.left && cx <= rc.right && cy >= rc.top && cy <= rc.bottom));
+    if (!others.length || b.slot % 3 === 0) return r;
+    return others[(b.slot + b.crew) % others.length];
   }
 
   /** Apply the reveal of a piece to the real element, frame by frame. */
@@ -505,6 +515,8 @@ class Flock {
     // One piece at a time, and only once its lead cursor is standing on the piece's corner.
     this.gate(now);
     const live: Live[] = this.jobs.map((j) => ({ j, r: j.el.getBoundingClientRect(), p: (now - j.start) / j.dur }));
+    this.blocks = Array.from(document.querySelectorAll<HTMLElement>('[data-build]')).map((el) => el.getBoundingClientRect())
+      .filter((rc) => rc.bottom > 60 && rc.top < this.h - 40 && rc.width > 30 && rc.height > 20);
     live.forEach((L) => this.reveal(L));
     // keep jobs added while revealing (the next block starts the moment the current one ends)
     const gone = new Set(live.filter(({ p }) => p >= 1.2).map(({ j }) => j));
@@ -542,7 +554,7 @@ class Flock {
           // between pieces: each cursor already takes its own part of the next piece, spread out over it
           const ref = live.find((l) => l.p <= -0.1) ?? live[live.length - 1];
           this.center = { x: ref.r.left + ref.r.width / 2, y: ref.r.top + ref.r.height / 2 };
-          [tx, ty] = this.inspect(b, ref.r, now);
+          [tx, ty] = this.inspect(b, this.spot(b, ref.r), now);
         } else {
         this.center = { x: Math.min(this.w - 60, Math.max(60, this.center.x)), y: Math.min(this.h - 60, Math.max(60, this.center.y)) };
         // a tight swirl, like a flock of birds turning around one point
