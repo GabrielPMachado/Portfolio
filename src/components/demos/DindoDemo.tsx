@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSteps } from './useDemo';
+import DemoCursor from './DemoCursor';
 
 type Props = { lang: 'pt' | 'en' };
 
@@ -31,20 +32,21 @@ export default function DindoDemo({ lang }: Props) {
         <strong className="dd-who">{t.who}</strong>
         <ul>
           {t.items.map(([n, p], i) => (
-            <li key={n} className={i < shown ? 'on' : ''}><span>{n}</span><span className="mono">{p}</span></li>
+            <li key={n} className={i < shown ? 'on' : ''} data-hot={(step === 0 && i === 0) || (step >= 1 && step <= 3 && i === Math.min(2, step)) ? '' : undefined}><span>{n}</span><span className="mono">{p}</span></li>
           ))}
         </ul>
         <div className="dd-total"><span>{t.total}</span><span className="mono">{shown === 3 ? 'R$ 54,00' : '—'}</span></div>
-        <span className={`dd-btn ${step === 4 ? 'press' : ''}`}>{t.go}</span>
+        <span className={`dd-btn ${step === 4 ? 'press' : ''}`} data-hot={step === 4 ? '' : undefined}>{t.go}</span>
       </div>
       <div className="dd-link"><i className={step >= 4 ? 'go' : ''} /></div>
       <div className="dd-phone">
         <span className="mono dd-k">{t.app}</span>
-        <div className="dd-points"><strong className="mono">{pts}</strong><span>{t.pts}</span></div>
+        <div className="dd-points" data-hot={step === 5 ? '' : undefined}><strong className="mono">{pts}</strong><span>{t.pts}</span></div>
         <div className="dd-bar"><i style={{ width: `${(pts / 200) * 100}%` }} /></div>
         <span className="dd-reward">{t.reward}</span>
         <div className={`dd-toast ${step === 5 ? 'on' : ''}`}>+54 {t.toast}</div>
       </div>
+      <DemoCursor host={ref} beat={step} />
     </div>
   );
 }

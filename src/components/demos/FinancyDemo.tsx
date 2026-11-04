@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useSteps } from './useDemo';
+import DemoCursor from './DemoCursor';
 
 type Props = { lang: 'pt' | 'en' };
 
@@ -20,25 +21,25 @@ export default function FinancyDemo({ lang }: Props) {
         <div className="fy-notch" />
         <div className="fy-app">
           <span className="fy-app-label">{t.app}</span>
-          {[0, 1, 2, 3].map((i) => <div key={i} className="fy-row" />)}
+          {[0, 1, 2, 3].map((i) => <div key={i} className="fy-row" data-hot={step === 0 && i === 1 ? '' : undefined} />)}
         </div>
         <div className={`fy-shade ${step === 1 ? 'on' : ''}`}>
           <span className="fy-shade-title">{t.shade}</span>
           <div className="fy-tiles">
             <div className="fy-tile" /><div className="fy-tile" />
-            <div className="fy-tile hot"><span>R$</span>{t.tile}</div>
+            <div className="fy-tile hot" data-hot={step === 1 ? '' : undefined}><span>R$</span>{t.tile}</div>
             <div className="fy-tile" />
           </div>
         </div>
-        <div className={`fy-bubble ${step >= 2 ? 'on' : ''}`}>R$</div>
+        <div className={`fy-bubble ${step >= 2 ? 'on' : ''}`} data-hot={step === 2 ? '' : undefined}>R$</div>
         <div className={`fy-panel ${step >= 3 ? 'on' : ''}`}>
           <span className="mono fy-k">{t.title}</span>
-          <strong className="fy-amount">{amount}<i className={step === 3 ? 'caret' : ''} /></strong>
+          <strong className="fy-amount" data-hot={step === 3 ? '' : undefined}>{amount}<i className={step === 3 ? 'caret' : ''} /></strong>
           <span className="fy-place">{t.place}</span>
-          <span className={`fy-saved ${step === 4 ? 'on' : ''}`}>✓ {t.saved}</span>
+          <span className={`fy-saved ${step === 4 ? 'on' : ''}`} data-hot={step === 4 ? '' : undefined}>✓ {t.saved}</span>
         </div>
       </div>
-      <span className="demo-cursor" style={{ left: step === 1 ? '52%' : step === 2 ? '74%' : '62%', top: step === 1 ? '28%' : step === 2 ? '46%' : '78%' }} />
+      <DemoCursor host={ref} beat={step} />
     </div>
   );
 }
