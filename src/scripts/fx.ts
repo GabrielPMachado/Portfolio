@@ -96,7 +96,89 @@ type Boid = {
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
   start: number; dur: number; revealed: boolean; built: boolean; lines: number; lh: number;
+  rad: number[]; ln: Box[]; parts: Box[]; fs: number; shell: boolean; col?: string;
 };
+/** A shape measured from the real layout, relative to the piece's top-left. rad < 0 marks a text bar. */
+type Box = { x: number; y: number; w: number; h: number; rad: number[]; fill: boolean; text?: boolean; col?: string; media?: boolean };
+
+/** The real corner radii of an element, in px, clamped like the browser does (so 50% gives a circle). */
+function radii(el: Element, w: number, h: number): number[] {
+  const cs = getComputedStyle(el);
+  const one = (v: string) => {
+    const [a] = v.split(' ');
+    const n = parseFloat(a) || 0;
+    return a.endsWith('%') ? (n / 100) * Math.min(w, h) : n;
+  };
+  const r = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].map(one);
+  const k = Math.min(1, w / Math.max(1e-3, r[0] + r[1]), w / Math.max(1e-3, r[3] + r[2]), h / Math.max(1e-3, r[0] + r[3]), h / Math.max(1e-3, r[1] + r[2]));
+  return r.map((v) => v * k);
+}
+
+/** Every rendered line of text inside an element, measured from the text itself. */
+function lineBoxes(el: Element, base: DOMRect): Box[] {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const qs = Array.from(range.getClientRects()).filter((q) => q.width > 1 && q.height > 1).sort((a, b) => a.top - b.top || a.left - b.left);
+  const out: Box[] = [];
+  for (const q of qs) {
+    const x = q.left - base.left, y = q.top - base.top;
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.y + last.h / 2 - (y + q.height / 2)) < Math.min(last.h, q.height) * 0.5) {
+      const right = Math.max(last.x + last.w, x + q.width);
+      last.x = Math.min(last.x, x); last.w = right - last.x;
+      const bottom = Math.max(last.y + last.h, y + q.height);
+      last.y = Math.min(last.y, y); last.h = bottom - last.y;
+    } else out.push({ x, y, w: q.width, h: q.height, rad: [0, 0, 0, 0], fill: true, text: true });
+  }
+  return out;
+}
+
+const clear = (c: string) => c === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(c);
+/** Does this element paint a shape of its own (fill, border, image)? */
+function paints(el: Element) {
+  const cs = getComputedStyle(el);
+  const fill = !clear(cs.backgroundColor) || cs.backgroundImage !== 'none';
+  const line = parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none' && !clear(cs.borderTopColor);
+  const media = /^(img|canvas|svg|video)$/i.test(el.tagName);
+  return { fill: fill || media, line, media, col: clear(cs.backgroundColor) ? undefined : cs.backgroundColor };
+}
+
+/** The real layout inside an image or demo: each painted box and each line of text, as it will end up. */
+function partsOf(el: HTMLElement, base: DOMRect): Box[] {
+  const out: Box[] = [];
+  const walk = (n: Element, depth: number) => {
+    for (const c of Array.from(n.children)) {
+      if (out.length >= 90) return;
+      const cs = getComputedStyle(c);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.05) continue;
+      const q = c.getBoundingClientRect();
+      const inside = q.right > base.left && q.left < base.right && q.bottom > base.top && q.top < base.bottom;
+      if (inside && q.width >= 4 && q.height >= 3) {
+        const { fill, line, media, col } = paints(c);
+        if (fill || line) out.push({ x: q.left - base.left, y: q.top - base.top, w: q.width, h: q.height, rad: radii(c, q.width, q.height), fill: !!col && !media, col, media: /^canvas$/i.test(c.tagName) });
+        if (media) continue;
+        if (Array.from(c.childNodes).some((t) => t.nodeType === 3 && (t.textContent ?? '').trim())) {
+          const range = document.createRange();
+          for (const t of Array.from(c.childNodes)) {
+            if (t.nodeType !== 3 || !(t.textContent ?? '').trim()) continue;
+            range.selectNodeContents(t);
+            for (const tq of Array.from(range.getClientRects())) if (tq.width > 1) out.push({ x: tq.left - base.left, y: tq.top - base.top, w: tq.width, h: tq.height, rad: [0, 0, 0, 0], fill: true, text: true });
+          }
+        }
+      }
+      if (depth < 7) walk(c, depth + 1);
+    }
+  };
+  walk(el, 0);
+  return out;
+}
+
+/** Fill or stroke a rounded box with its own corner radii. */
+function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, rad: number[]) {
+  ctx.beginPath();
+  if (rad.some((v) => v > 0.5)) ctx.roundRect(x, y, Math.max(0, w), Math.max(0, h), rad.map((v) => Math.max(0, Math.min(v, w / 2, h / 2))));
+  else ctx.rect(x, y, Math.max(0, w), Math.max(0, h));
+}
 type Live = { j: Job; r: DOMRect; p: number };
 
 const COLORS = ['#1E8BFF', '#5FB0FF', '#FFB224', '#FF4A4A', '#34D399', '#C084FC', '#F472B6'];
@@ -195,10 +277,16 @@ class Flock {
     const kind = kindOf(el);
     const r = el.getBoundingClientRect();
     const lh = parseFloat(getComputedStyle(el).lineHeight) || 24;
-    const lines = Math.max(1, Math.min(10, Math.round(r.height / lh)));
+    const fs = parseFloat(getComputedStyle(el).fontSize) || 16;
+    // measure what the piece will really look like: its text lines, its corners, its inner layout
+    let ln = kind === 'text' || kind === 'title' || kind === 'small' ? lineBoxes(el, r) : [];
+    if ((kind === 'text' || kind === 'title') && !ln.length) ln = [{ x: 0, y: 0, w: r.width, h: Math.min(r.height, lh), rad: [0, 0, 0, 0], fill: true, text: true }];
+    const parts = kind === 'visual' ? partsOf(el, r) : [];
+    const own = paints(el);
+    const lines = ln.length ? Math.min(14, ln.length) : Math.max(1, Math.min(10, Math.round(r.height / lh)));
     const dur = kind === 'visual' ? 2300 : kind === 'small' ? 900 : kind === 'title' ? 1350 : Math.min(2600, 900 + lines * 300);
     el.classList.add('atom-wait');
-    this.jobs.push({ seq: this.seq++, el, host, kind, start, dur, revealed: false, built: false, lines, lh });
+    this.jobs.push({ seq: this.seq++, el, host, kind, start, dur, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col });
     this.left.set(host, (this.left.get(host) ?? 0) + 1);
   }
 
@@ -275,6 +363,8 @@ class Flock {
     const { r, p, j } = L, ph = PH.text;
     const pos = band(p, ph.r0, ph.r1) * j.lines;
     const k = Math.min(j.lines - 1, Math.floor(pos));
+    const b = j.ln[k];
+    if (b) return [r.left + b.x + b.w * Math.min(1, pos - k), r.top + b.y];
     return [r.left + r.width * (pos - k), r.top + k * j.lh];
   }
 
@@ -303,9 +393,14 @@ class Flock {
       case 'bar': { // carries placeholder lines into text, or works the grid of an image
         if (p > ph.r0 + 0.05) break;
         if (j.kind === 'text' && sub < j.lines) {
-          const y = r.top + j.lh * (sub + 0.5);
+          const b = j.ln[sub];
           const bp = band(p, ph.d * 0.6 + sub * 0.025, ph.d + 0.06 + sub * 0.025);
-          return [r.left + r.width * (sub === j.lines - 1 ? 0.6 : 0.95) * ease(bp), y + 4];
+          if (b) return [r.left + b.x + b.w * ease(bp), r.top + b.y + b.h / 2 + 4];
+          return [r.left + r.width * 0.95 * ease(bp), r.top + j.lh * (sub + 0.5) + 4];
+        }
+        if (j.kind === 'visual' && j.parts.length) {
+          const b = j.parts[(sub * 7) % j.parts.length];
+          return [r.left + b.x + b.w * 0.5, r.top + b.y + b.h * 0.5 + wob * 3];
         }
         if (j.kind === 'visual' && sub < 8) return [r.left + r.width * (0.18 + 0.64 * ((sub * 0.37 + 0.1) % 1)), r.top + r.height * (0.18 + 0.64 * ((sub * 0.61 + 0.3) % 1)) + wob * 3];
         break;
@@ -340,9 +435,11 @@ class Flock {
       el.style.setProperty('--gy', `${(k * rnd(3, 9)).toFixed(1)}px`);
       el.style.opacity = k > 0.5 && Math.random() < 0.25 ? '0.35' : '1';
     } else if (j.kind === 'text') {
-      const pos = v * j.lines, k = Math.min(j.lines - 1, Math.floor(pos)), x = ((pos - k) * 100).toFixed(1);
-      const y0 = k * j.lh, y1 = y0 + j.lh;
-      el.style.clipPath = `polygon(-4px -4px, calc(100% + 4px) -4px, calc(100% + 4px) ${y0}px, ${x}% ${y0}px, ${x}% ${y1}px, -4px ${y1}px)`;
+      const pos = v * j.lines, k = Math.min(j.lines - 1, Math.floor(pos));
+      const b = j.ln[k];
+      const y0 = b ? b.y : k * j.lh, y1 = b ? b.y + b.h : y0 + j.lh;
+      const x = b ? `${(b.x + b.w * (pos - k)).toFixed(1)}px` : `${((pos - k) * 100).toFixed(1)}%`;
+      el.style.clipPath = `polygon(-4px -4px, calc(100% + 4px) -4px, calc(100% + 4px) ${y0}px, ${x} ${y0}px, ${x} ${y1}px, -4px ${y1}px)`;
     } else {
       el.style.opacity = String(ease(v));
     }
@@ -508,57 +605,92 @@ class Flock {
       ctx.globalAlpha = fade;
     }
 
+    // The draft is drawn from the real layout: same boxes, same corners, same text lines.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(r.left - 2, r.top - 2, w + 4, h + 4); ctx.clip();
     if (j.kind === 'visual') {
-      // grey placeholder with a layout grid, dissolving as the real thing fades in
+      // the outer frame with its real corners, then every inner box and text line where it will end up
       const grey = 1 - band(p, ph.r0, ph.r1);
       ctx.globalAlpha = fade * grey;
-      ctx.fillStyle = 'rgba(128,136,148,.5)';
-      ctx.fillRect(r.left, r.top, w, h);
-      const gp = band(p, ph.d, ph.r0);
-      if (gp > 0) {
-        ctx.strokeStyle = 'rgba(30,139,255,.8)'; ctx.lineWidth = 1;
-        for (let k = 1; k <= 3; k++) {
-          const inset = k * 0.11;
-          const iw = r.width * (1 - inset * 2) * ease(band(gp, (k - 1) * 0.15, (k - 1) * 0.15 + 0.4));
-          ctx.strokeRect(r.left + r.width * inset + 0.5, r.top + r.height * inset + 0.5, iw, r.height * (1 - inset * 2));
+      // in the piece's own colors, so the draft already reads like the final card
+      ctx.fillStyle = j.col ?? 'rgba(22,24,28,.96)';
+      shape(ctx, r.left, r.top, r.width, r.height, j.rad); ctx.fill();
+      ctx.strokeStyle = 'rgba(128,136,148,.5)'; ctx.lineWidth = 1;
+      shape(ctx, r.left + 0.5, r.top + 0.5, r.width - 1, r.height - 1, j.rad); ctx.stroke();
+      const gp = band(p, ph.d * 0.5, ph.r0);
+      const n = j.parts.length;
+      j.parts.forEach((pt, i) => {
+        const a = ease(band(gp, (i / Math.max(1, n)) * 0.55, (i / Math.max(1, n)) * 0.55 + 0.35));
+        if (a <= 0) return;
+        const x = r.left + pt.x, y = r.top + pt.y;
+        if (pt.text) {
+          const bh = Math.max(3, pt.h * 0.55);
+          ctx.fillStyle = 'rgba(150,158,170,.75)';
+          ctx.fillRect(x, y + (pt.h - bh) / 2, pt.w * a, bh);
+          return;
         }
-        ctx.fillStyle = 'rgba(30,139,255,.75)';
-        for (let k = 1; k < 4; k++) {
-          ctx.fillRect(r.left + (r.width * k) / 4, r.top, 1, r.height * ease(gp));
-          ctx.fillRect(r.left, r.top + (r.height * k) / 4, r.width * ease(gp), 1);
+        ctx.globalAlpha = fade * grey * a;
+        if (pt.media) {
+          // the 3D scene: a wireframe sphere where the neural network will spin
+          const cx = x + pt.w / 2, cy = y + pt.h / 2, R = Math.min(pt.w, pt.h) * 0.4 * a;
+          ctx.strokeStyle = 'rgba(30,139,255,.6)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+          for (let e = 1; e <= 2; e++) { ctx.beginPath(); ctx.ellipse(cx, cy, R, R * (0.25 + e * 0.25), 0, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.ellipse(cx, cy, R * (0.25 + e * 0.25), R, 0, 0, Math.PI * 2); ctx.stroke(); }
+          ctx.globalAlpha = fade * grey;
+          return;
         }
-        ctx.font = '500 9px "Geist Mono", ui-monospace, monospace';
-        for (let k = 0; k < 6; k++) {
-          const bx = r.left + r.width * (0.2 + 0.6 * ((k * 0.37) % 1)), by = r.top + r.height * (0.2 + 0.6 * ((k * 0.61) % 1));
-          if (band(gp, k * 0.1, k * 0.1 + 0.2) <= 0) continue;
-          ctx.fillStyle = BLUE; ctx.fillRect(bx - 16, by - 6, 32, 12);
-          ctx.fillStyle = '#fff'; ctx.fillText(`${(r.width * 0.2 + k * 13) | 0}`, bx - 12, by + 3);
-        }
+        if (pt.fill) { ctx.fillStyle = pt.col ?? 'rgba(150,158,170,.22)'; shape(ctx, x, y, pt.w, pt.h, pt.rad); ctx.fill(); }
+        ctx.strokeStyle = 'rgba(30,139,255,.75)'; ctx.lineWidth = 1;
+        shape(ctx, x + 0.5, y + 0.5, pt.w - 1, pt.h - 1, pt.rad); ctx.stroke();
+        ctx.globalAlpha = fade * grey;
+      });
+      ctx.globalAlpha = fade;
+    } else if (j.kind === 'small') {
+      // a button, chip or tag: its own pill/circle/box, with its label line inside
+      const grey = 1 - band(p, ph.r0, ph.r1);
+      ctx.globalAlpha = fade * grey;
+      if (j.shell) {
+        ctx.fillStyle = j.col ?? 'rgba(128,136,148,.25)'; shape(ctx, r.left, r.top, r.width, r.height, j.rad); ctx.fill();
+        ctx.strokeStyle = 'rgba(128,136,148,.6)'; ctx.lineWidth = 1; shape(ctx, r.left + 0.5, r.top + 0.5, r.width - 1, r.height - 1, j.rad); ctx.stroke();
+      }
+      const lp = band(p, ph.d * 0.5, ph.r0);
+      for (const b of j.ln) {
+        const bh = Math.max(3, Math.min(b.h, j.fs) * 0.6);
+        ctx.fillStyle = 'rgba(120,128,140,.9)';
+        ctx.fillRect(r.left + b.x, r.top + b.y + (b.h - bh) / 2, b.w * ease(lp), bh);
       }
       ctx.globalAlpha = fade;
     } else if (j.kind === 'text' || j.kind === 'title') {
-      // grey lines laid in first, typed over (text) or replaced by the glitching title
+      // grey bars exactly where each real line of text sits, as long as that line really is
       const lp = band(p, ph.d * 0.6, ph.r0);
       const pos = j.kind === 'text' ? band(p, ph.r0, ph.r1) * j.lines : (p >= ph.r0 ? j.lines : 0);
       for (let k = 0; k < j.lines; k++) {
-        const full = (k === j.lines - 1 && j.lines > 1 ? 0.6 : 0.95) * r.width * ease(band(lp, k * 0.08, k * 0.08 + 0.5));
+        const b = j.ln[k];
+        if (!b) continue;
+        const full = b.w * ease(band(lp, k * 0.08, k * 0.08 + 0.5));
         const done = Math.min(1, Math.max(0, pos - k));
-        const from = r.left + r.width * done;
-        const len = r.left + full - from;
+        const from = r.left + b.x + b.w * done;
+        const len = r.left + b.x + full - from;
         if (len <= 0) continue;
+        const bh = Math.max(4, Math.min(b.h, j.fs * 1.2) * (j.kind === 'title' ? 0.72 : 0.6));
         ctx.fillStyle = j.kind === 'title' ? 'rgba(90,96,108,.8)' : 'rgba(52,56,64,.95)';
-        ctx.fillRect(from, r.top + k * j.lh + j.lh * 0.22, len, Math.max(4, j.lh * (j.kind === 'title' ? 0.6 : 0.45)));
+        ctx.fillRect(from, r.top + b.y + (b.h - bh) / 2, len, bh);
       }
       if (j.kind === 'text' && p > ph.r0 && p < ph.r1 && Math.floor(now / 260) % 2 === 0) {
         const [cx, cy] = this.caret(L);
-        ctx.fillStyle = BLUE; ctx.fillRect(Math.round(cx), cy + j.lh * 0.12, 2, j.lh * 0.76);
+        const b = j.ln[Math.min(j.lines - 1, Math.floor(band(p, ph.r0, ph.r1) * j.lines))];
+        const ch = b ? b.h : j.lh;
+        ctx.fillStyle = BLUE; ctx.fillRect(Math.round(cx), cy + ch * 0.12, 2, ch * 0.76);
       }
     }
+    ctx.restore();
 
     // the selection box, its handles and the live size badge
     if (d > 0.02) {
       ctx.strokeStyle = col; ctx.lineWidth = 1;
-      ctx.strokeRect(x0, y0, Math.round(w), Math.round(h));
+      // the outline takes the piece's real corners, so a circle is drawn as a circle
+      shape(ctx, x0, y0, Math.round(w), Math.round(h), j.rad.map((v) => v * Math.min(w / Math.max(1, r.width), h / Math.max(1, r.height))));
+      ctx.stroke();
       if (j.kind !== 'small') {
         ctx.fillStyle = '#fff';
         const corners: [number, number][] = [[r.left, r.top], [r.left + w, r.top], [r.left, r.top + h], [r.left + w, r.top + h]];
