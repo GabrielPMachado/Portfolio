@@ -1,0 +1,46 @@
+---
+import '../styles/global.css';
+import type { Dict } from '../i18n/pt';
+
+interface Props { t: Dict; path: string }
+const { t, path } = Astro.props;
+const site = Astro.site?.toString().replace(/\/$/, '') ?? '';
+const alt = t.lang === 'en' ? '/' : '/en/';
+---
+<!doctype html>
+<html lang={t.lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{t.meta.title}</title>
+    <meta name="description" content={t.meta.description} />
+    <meta name="theme-color" content="#09090B" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href={site + path} />
+    <link rel="alternate" hreflang="pt-BR" href={site + '/'} />
+    <link rel="alternate" hreflang="en" href={site + '/en/'} />
+    <meta property="og:title" content={t.meta.title} />
+    <meta property="og:description" content={t.meta.description} />
+    <meta property="og:type" content="website" />
+    <script is:inline>
+      // Decide before first paint whether the assembly effect runs.
+      (function () {
+        var d = document.documentElement;
+        var off = false;
+        try { off = localStorage.getItem('fx') === 'off'; } catch (e) {}
+        var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (off || reduced) { d.classList.add('no-fx'); return; }
+        d.classList.add('fx-run');
+        // Safety net: never leave content hidden if scripts fail.
+        setTimeout(function () { if (!window.__fx) d.classList.add('fx-done'); }, 4000);
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#conteudo">{t.skip}</a>
+    <slot />
+    <script>
+      import '../scripts/fx';
+    </script>
+  </body>
+</html>
