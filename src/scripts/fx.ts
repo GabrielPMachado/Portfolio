@@ -94,7 +94,7 @@ type Boid = {
   hx: number; hy: number; hopUntil: number; insp: boolean; clicked: boolean; clickAt: number; cx: number; cy: number;
   clk: number; due: number; was: boolean; // how often this cursor clicks, and when its next click may land
   slot: number; of: number; // its own part of the piece (one cell of a grid), out of how many in its crew
-  chief: number; // -1, or which of the two lead builders of the blocks still in line it is
+  chief: number; // -1, or which builder it is (it builds pieces of its own, see BUILDERS)
 };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
@@ -102,7 +102,8 @@ type Job = {
   rad: number[]; ln: Box[]; parts: Box[]; fs: number; shell: boolean; col?: string;
   since?: number; // when it started waiting for its cursor
   nb: number; // not before: a piece starts only when its cursor has arrived (start stays Infinity until then)
-  pre: number; // how far the helpers already sketched it ahead of its turn (never past the outline)
+  pre: number; // how far it was built ahead of its turn: sketched by helpers (outline only) or built by a builder
+  owner: number; // the builder working on it, or -1
 };
 /** A shape measured from the real layout, relative to the piece's top-left. rad < 0 marks a text bar. */
 type Box = { x: number; y: number; w: number; h: number; rad: number[]; fill: boolean; text?: boolean; col?: string; media?: boolean };
@@ -188,7 +189,10 @@ function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 type Live = { j: Job; r: DOMRect; p: number };
 
 /** How many cursors build the site. */
-const CURSORS = { desktop: 12, mobile: 10 };
+const CURSORS = { desktop: 40, mobile: 30 };
+// how many of them are builders: each one takes a piece of its own (of the block being built, or of the next
+// blocks in line) and really builds it, so several pieces go up at the same time
+const BUILDERS = { desktop: 8, mobile: 6 };
 const COLORS = ['#1E8BFF', '#5FB0FF', '#FFB224', '#FF4A4A', '#34D399', '#C084FC', '#F472B6'];
 const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -258,7 +262,7 @@ class Flock {
   sketching: HTMLElement[] = []; // blocks in line, on screen, that helpers can sketch
   helped = new Map<HTMLElement, number>(); // last time a helper was working on a block in line
   lastT = 0;
-  chiefAt: ({ j: Job; host: HTMLElement } | null)[] = [null, null]; // the piece each builder is on
+  tasks: (Job | null)[] = []; // the piece each builder is on
   seq = 0;
 
   constructor() {
@@ -294,9 +298,11 @@ class Flock {
       const order = crew.map((_, k) => k);
       for (let k = order.length - 1; k > 0; k--) { const m = (Math.random() * (k + 1)) | 0; [order[k], order[m]] = [order[m], order[k]]; }
       crew.forEach((b, k) => { b.slot = order[k]; b.of = crew.length; });
-      // two cursors of the first crew are builders too: each one really builds a block still in line
-      if (c === 0) crew.forEach((b) => { b.chief = b.slot === 1 ? 0 : b.slot === 2 ? 1 : -1; });
     }
+    // the builders: never a crew's lead or its typing cursor, picked across all crews
+    const leads = new Set(Array.from({ length: this.crews }, (_, c) => this.lead(c)));
+    const pool = this.boids.filter((b) => !leads.has(b) && !(b.kind === 'sweep' && b.q === 0)).sort((a, b) => a.slot - b.slot || a.crew - b.crew);
+    pool.slice(0, innerWidth < 720 ? BUILDERS.mobile : BUILDERS.desktop).forEach((b, k) => { b.chief = k; this.tasks.push(null); });
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
@@ -306,6 +312,7 @@ class Flock {
     j.pre = d?.pre ?? 0;
     j.seq = this.seq++;
     if (d?.built) j.start = performance.now() - 1.2 * j.dur; // already built by one of the builders: done at once
+    else if (d && d.owner >= 0) { j.owner = d.owner; if (j.pre < PH[j.kind].r0) el.classList.add('atom-wait'); } // its builder carries on
     else if (j.pre >= PH[j.kind].r0) j.start = performance.now() - j.pre * j.dur; // halfway: carry on right away
     else el.classList.add('atom-wait');
     this.jobs.push(j);
@@ -324,7 +331,7 @@ class Flock {
     const own = paints(el);
     const lines = ln.length ? Math.min(14, ln.length) : Math.max(1, Math.min(10, Math.round(r.height / lh)));
     const dur = kind === 'visual' ? 1900 : kind === 'small' ? 750 : kind === 'title' ? 1150 : Math.min(2200, 800 + lines * 260);
-    return { seq: -1, el, host, kind, start: Infinity, nb: start, dur, pre: 0, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col };
+    return { seq: -1, el, host, kind, start: Infinity, nb: start, dur, pre: 0, owner: -1, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col };
   }
 
   /** Blocks waiting in line get sketched by the helpers working on them, but only up to the outline:
@@ -339,33 +346,55 @@ class Flock {
     for (const host of line) {
       const hr = host.getBoundingClientRect();
       if (hr.bottom < 60 || hr.top > this.h - 40) continue;
-      let ds = this.drafts.get(host);
-      if (!ds) { ds = atoms(host).map((a) => this.makeJob(a, host, 0)); this.drafts.set(host, ds); }
+      if (!this.drafts.has(host)) this.drafts.set(host, atoms(host).map((a) => this.makeJob(a, host, 0)));
       this.sketching.push(host);
-      const k = this.sketching.length - 1;
-      if (k < 2 && this.boids.some((b) => b.chief === k && now >= b.enterAt)) {
-        // the next two blocks in line get a builder each: it really builds them, piece by piece,
-        // and like the lead it only works once it stands on the piece's work point
-        if (!host.classList.contains('is-early')) {
-          host.classList.add('is-early');
-          ds.forEach((d) => { if (d.pre < PH[d.kind].r0) d.el.classList.add('atom-wait'); });
-        }
-        for (const d of ds) if (d.pre >= 1 && d.pre < 1.2) d.pre = Math.min(1.2, d.pre + dt / d.dur); // fade out the finished draft
-        const j = ds.find((d) => d.pre < 1);
-        this.chiefAt[k] = j ? { j, host } : null;
-        const b = this.boids.find((x) => x.chief === k)!;
-        if (j) {
-          const [px, py] = this.chiefPoint(j);
-          if (Math.hypot(b.x - px, b.y - py) < 30) j.pre = Math.min(1, j.pre + dt / j.dur);
-        }
-        for (const d of ds) if (d.pre > 0 && !d.built) this.reveal({ j: d, r: d.el.getBoundingClientRect(), p: d.pre });
-        continue;
-      }
-      // the other blocks in line: one piece after the other, slower than the real build, never past the outline
-      const j = ds.find((d) => d.pre < PH[d.kind].d);
+    }
+    this.work(now, dt);
+    // finished pieces fade their draft out
+    // (a builder lets go of a piece once it is revealed: the rest of its run, the draft fading out, plays on its own)
+    for (const j of this.jobs) if (j.start === Infinity && (j.pre >= 1 || j.built) && j.pre > 0 && j.pre < 1.2) j.pre = Math.min(1.2, j.pre + dt / j.dur);
+    for (const host of this.sketching) {
+      const ds = this.drafts.get(host)!;
+      for (const d of ds) if ((d.pre >= 1 || d.built) && d.pre > 0 && d.pre < 1.2) d.pre = Math.min(1.2, d.pre + dt / d.dur);
+      if (host.classList.contains('is-early')) for (const d of ds) if (d.pre > 0 && !d.built) this.reveal({ j: d, r: d.el.getBoundingClientRect(), p: d.pre });
+      // the helpers: one piece after the other, slower than the real build, never past the outline
+      const j = ds.find((d) => d.owner < 0 && !d.built && d.pre < PH[d.kind].d);
       if (j && this.helped.get(host)! > now - 120) j.pre = Math.min(PH[j.kind].d, j.pre + (dt / j.dur) * 0.45);
     }
-    for (let k = this.sketching.length; k < 2; k++) this.chiefAt[k] = null;
+  }
+
+  /** The builders: each one keeps a piece of its own until it is built. Pieces of the block being built come first
+   *  (all but the one its lead is about to start), then the blocks in line, top to bottom. A builder only works
+   *  while it stands on the piece's work point, like the lead. */
+  work(now: number, dt: number) {
+    let list: Job[] | null = null;
+    const seen = (j: Job) => { const r = j.el.getBoundingClientRect(); return r.bottom > 50 && r.top < this.h - 30 && r.width > 0; };
+    const free = () => {
+      if (list) return list;
+      const main = this.jobs.filter((j) => j.start === Infinity && !j.built && j.owner < 0);
+      list = main.slice(1);
+      for (const host of this.sketching) list.push(...this.drafts.get(host)!.filter((d) => !d.built && d.owner < 0 && d.pre < 1));
+      return (list = list.filter(seen));
+    };
+    this.tasks.forEach((t, k) => {
+      const b = this.boids.find((x) => x.chief === k);
+      if (!b || now < b.enterAt) { this.tasks[k] = null; return; }
+      // its block was taken by the flock: carry on with the same piece, now a real job
+      if (t && t.seq < 0 && !this.drafts.get(t.host)?.includes(t)) t = this.jobs.find((x) => x.el === t!.el && x.start === Infinity && !x.built) ?? null;
+      if (t && (t.built || t.pre >= 1 || t.start !== Infinity || !seen(t))) { if (!t.built && t.owner === k) t.owner = -1; t = null; }
+      if (!t) t = free().find((x) => x.owner < 0) ?? null;
+      if (t) {
+        t.owner = k;
+        if (t.seq < 0 && !t.host.classList.contains('is-early')) {
+          // a block in line a builder starts on: shown, its pieces still hidden until each is revealed
+          t.host.classList.add('is-early');
+          this.drafts.get(t.host)!.forEach((d) => { if (d.pre < PH[d.kind].r0) d.el.classList.add('atom-wait'); });
+        }
+        const [px, py] = this.chiefPoint(t);
+        if (Math.hypot(b.x - px, b.y - py) < 30) t.pre = Math.min(1, t.pre + dt / t.dur);
+      }
+      this.tasks[k] = t;
+    });
   }
 
   /** Where a builder works on a piece: drags the box from its corner, then sweeps the reveal across it. */
@@ -474,6 +503,7 @@ class Flock {
   pending(now: number): Job | null {
     for (const j of this.jobs) {
       if (j.start !== Infinity) { if (!j.built) return null; continue; } // a piece is still being built: wait for it
+      if (j.built || j.owner >= 0) continue; // a builder has it (or already built it)
       return now >= j.nb ? j : null;
     }
     return null;
@@ -619,10 +649,10 @@ class Flock {
       const wait = this.mode !== 'orbit' ? this.pending(now) : null;
       const leading = !!wait && b === this.lead(wait.seq % this.crews);
       let glue = false;
-      const chief = b.chief >= 0 && this.mode === 'build' && !leading ? this.chiefAt[b.chief] : null;
-      if (chief) {
-        // a builder on a block still in line: on its work point, nowhere else
-        [tx, ty] = this.chiefPoint(chief.j);
+      const task = b.chief >= 0 && this.mode === 'build' && !leading ? this.tasks[b.chief] : null;
+      if (task) {
+        // a builder on its own piece: on its work point, nowhere else
+        [tx, ty] = this.chiefPoint(task);
         glue = Math.hypot(tx - b.x, ty - b.y) < 40;
       } else if (leading) {
         // the lead flies to the top-left corner of the next piece; the piece only starts once it is there
@@ -663,7 +693,7 @@ class Flock {
       const dx = tx - b.x, dy = ty - b.y;
       const dist = Math.hypot(dx, dy) || 1;
       // glide: ease toward the target, slowing down smoothly as it gets close
-      const max = (this.mode === 'leave' ? 9 + t * 4 : leading ? 16 : 11) * b.spd;
+      const max = (this.mode === 'leave' ? 9 + t * 4 : leading || task ? 16 : 11) * b.spd;
       const speed = Math.min(max, dist * 0.09);
       let ax = (dx / dist) * speed - b.vx, ay = (dy / dist) * speed - b.vy;
       // the lead and the cursors at work hold their point: they are not pushed around by the others
