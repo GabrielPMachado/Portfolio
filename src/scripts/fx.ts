@@ -189,10 +189,10 @@ function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 type Live = { j: Job; r: DOMRect; p: number };
 
 /** How many cursors build the site. */
-const CURSORS = { desktop: 40, mobile: 30 };
-// how many of them are builders: each one takes a piece of its own (of the block being built, or of the next
-// blocks in line) and really builds it, so several pieces go up at the same time
-const BUILDERS = { desktop: 8, mobile: 6 };
+const CURSORS = { desktop: 12, mobile: 10 };
+// 30% of them are builders: each one takes a piece of its own (of the block being built, or of the next
+// blocks in line) and really builds it, so several pieces go up at the same time. The other 70% help.
+const BUILDERS = 0.3;
 const COLORS = ['#1E8BFF', '#5FB0FF', '#FFB224', '#FF4A4A', '#34D399', '#C084FC', '#F472B6'];
 const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -302,7 +302,7 @@ class Flock {
     // the builders: never a crew's lead or its typing cursor, picked across all crews
     const leads = new Set(Array.from({ length: this.crews }, (_, c) => this.lead(c)));
     const pool = this.boids.filter((b) => !leads.has(b) && !(b.kind === 'sweep' && b.q === 0)).sort((a, b) => a.slot - b.slot || a.crew - b.crew);
-    pool.slice(0, innerWidth < 720 ? BUILDERS.mobile : BUILDERS.desktop).forEach((b, k) => { b.chief = k; this.tasks.push(null); });
+    pool.slice(0, Math.round(n * BUILDERS)).forEach((b, k) => { b.chief = k; this.tasks.push(null); });
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
