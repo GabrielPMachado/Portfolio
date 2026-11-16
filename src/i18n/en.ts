@@ -76,7 +76,7 @@ export const en: Dict = {
           'Points, levels and a store of avatars, frames and titles for people who keep the map alive',
         ],
         tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Apple Maps'],
-        link: { label: 'See the code', href: 'https://github.com/GabrielPMachado/HypeApp-Project' },
+        link: { label: 'See the code', href: 'https://github.com/GabrielPMachado/HypeApp' },
       },
       {
         id: 'dindo',
