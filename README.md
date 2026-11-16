@@ -2,6 +2,12 @@
 
 Site pessoal em Astro + React + Three.js, em português (`/`) e inglês (`/en/`).
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Demonstração animada do projeto: topo do site, com a rede neural 3D e os cursores que montam a página" width="640" />
+  <br />
+  <sub>Topo do site, com a rede neural 3D e os cursores que montam a página. Veja ao vivo em <a href="https://portfolio-financy1.vercel.app">portfolio-financy1.vercel.app</a>.</sub>
+</p>
+
 ## Rodar
 
 ```bash
