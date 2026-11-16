@@ -13,7 +13,7 @@ const copy = {
     qValue: 'Qual é o valor?', qCat: 'Categoria', cats: ['Mercado', 'Transporte', 'Lazer', 'Contas'],
     qOk: 'Confirmar lançamento', go: 'Avançar', ok: 'Confirmar', today: 'Hoje',
     rows: [['iFood', 'Nubank', '- R$ 38,50'], ['Freela landing page', 'Pix', '+ R$ 1.200,00'], ['Uber', 'Mercado Pago', '- R$ 21,90']],
-    newRow: ['Mercado', 'Pop-up', '- R$ 42,90'],
+    newRow: ['Mercado', 'Atalho', '- R$ 42,90'],
   },
   en: {
     balance: 'Balance', inc: 'In this month', exp: 'Spent this month', quick: 'Quick entry',
@@ -22,7 +22,7 @@ const copy = {
     qValue: 'How much?', qCat: 'Category', cats: ['Groceries', 'Transport', 'Leisure', 'Bills'],
     qOk: 'Confirm entry', go: 'Next', ok: 'Confirm', today: 'Today',
     rows: [['iFood', 'Nubank', '- R$ 38,50'], ['Landing page gig', 'Pix', '+ R$ 1.200,00'], ['Uber', 'Mercado Pago', '- R$ 21,90']],
-    newRow: ['Groceries', 'Pop-up', '- R$ 42,90'],
+    newRow: ['Groceries', 'Shortcut', '- R$ 42,90'],
   },
 };
 

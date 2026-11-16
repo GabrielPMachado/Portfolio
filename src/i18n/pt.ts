@@ -25,12 +25,12 @@ export const pt = {
     secondary: 'Falar comigo',
     data: [
       { k: 'Base', v: 'Porto Alegre, RS', clock: true },
-      { k: 'Linguagens', v: 'TypeScript · Python · Kotlin' },
+      { k: 'Linguagens', v: 'TypeScript · Python · Swift' },
       { k: 'Formação', v: 'Ciência da Computação, Estácio' },
     ],
     visualLabel: 'Rede neural holográfica girando em 3D',
   },
-  tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Kotlin', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'Google Maps', 'GitHub Actions'],
+  tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Swift', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'GitHub Actions'],
   projects: {
     tag: 'Projetos selecionados · 05',
     title: ['A prova está', 'no que roda.'],
@@ -39,15 +39,15 @@ export const pt = {
     items: [
       {
         id: 'financy',
-        cat: 'Finanças pessoais · Web, iPhone e Android',
+        cat: 'Finanças pessoais · Web e iPhone',
         name: 'Financy',
-        desc: 'Controle financeiro pessoal que roda na web, no iPhone como PWA e no Android nativo, sincronizado em tempo real e com as transações do Nubank e do Mercado Pago entrando sozinhas via Open Finance.',
+        desc: 'Controle financeiro pessoal que roda na web e no iPhone, como PWA ou app nativo, sincronizado em tempo real e com as transações do Nubank e do Mercado Pago entrando sozinhas via Open Finance.',
         highlights: [
-          'Pop-up flutuante de lançamento rápido em 6 etapas, aberto pelas Configurações rápidas do Android, escrito em Kotlin',
+          'Lançamento rápido em 6 etapas, aberto por atalho do iPhone ou por link, e ligação com o Órbita para categorizar compras do Apple Pay',
           'Importação automática dos bancos de hora em hora com GitHub Actions, sem duplicar nem sobrescrever edições',
           'Cartões com limite e fatura, parcelas, recorrência, análise mensal por categoria e planejamento com IA',
         ],
-        tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Kotlin'],
+        tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Open Finance'],
         link: { label: 'Ver ao vivo', href: 'https://financy-vert.vercel.app' },
       },
       {
@@ -69,11 +69,11 @@ export const pt = {
         name: 'HypeApp',
         desc: 'O Waze do Rolê: um app colaborativo que mostra, em tempo real, o hype de cada bar da Cidade Baixa antes de você sair de casa, com nota de 0 a 10 dada por quem já está lá.',
         highlights: [
-          'Mapa de calor com prédios em 3D e uma lista que reordena o ranking sozinha, com selo de "Mais hypado agora"',
+          'Mapa de calor ao vivo e uma lista que reordena o ranking sozinha, com selo de "Mais hypado agora"',
           'Nota do Hype feita da média das avaliações recentes, com limite de uma a cada 30 minutos contra abuso',
           'Pontos, níveis e uma loja de avatares, molduras e títulos para quem mantém o mapa vivo',
         ],
-        tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Google Maps'],
+        tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Apple Maps'],
         link: { label: 'Ver código', href: 'https://github.com/GabrielPMachado/HypeApp-Project' },
       },
       {
