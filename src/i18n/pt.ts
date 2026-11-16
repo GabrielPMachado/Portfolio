@@ -74,7 +74,7 @@ export const pt = {
           'Pontos, níveis e uma loja de avatares, molduras e títulos para quem mantém o mapa vivo',
         ],
         tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Apple Maps'],
-        link: { label: 'Ver código', href: 'https://github.com/GabrielPMachado/HypeApp-Project' },
+        link: { label: 'Ver código', href: 'https://github.com/GabrielPMachado/HypeApp' },
       },
       {
         id: 'dindo',
