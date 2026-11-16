@@ -5,6 +5,7 @@ import FinancyDemo from './demos/FinancyDemo.tsx';
 import VerticeDemo from './demos/VerticeDemo.tsx';
 import HypeDemo from './demos/HypeDemo.tsx';
 import DindoDemo from './demos/DindoDemo.tsx';
+import OrbitaDemo from './demos/OrbitaDemo.tsx';
 import '../styles/page.css';
 
 interface Props { t: Dict }
@@ -118,6 +119,7 @@ const links = [
                 {p.id === 'vertice' && <VerticeDemo client:visible lang={code} />}
                 {p.id === 'hype' && <HypeDemo client:visible lang={code} />}
                 {p.id === 'dindo' && <DindoDemo client:visible lang={code} />}
+                {p.id === 'orbita' && <OrbitaDemo client:visible lang={code} />}
                 <span class="demo-note mono">{t.projects.demoNote}</span>
                 <span class="sel-box" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></span>
               </div>
