@@ -27,12 +27,12 @@ export const en: Dict = {
     secondary: 'Get in touch',
     data: [
       { k: 'Based in', v: 'Porto Alegre, Brazil', clock: true },
-      { k: 'Languages', v: 'TypeScript · Python · Kotlin' },
+      { k: 'Languages', v: 'TypeScript · Python · Swift' },
       { k: 'Education', v: 'Computer Science, Estácio' },
     ],
     visualLabel: 'Holographic neural network rotating in 3D',
   },
-  tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Kotlin', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'Google Maps', 'GitHub Actions'],
+  tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Swift', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'GitHub Actions'],
   projects: {
     tag: 'Selected work · 05',
     title: ['The proof is', 'in what runs.'],
@@ -41,15 +41,15 @@ export const en: Dict = {
     items: [
       {
         id: 'financy',
-        cat: 'Personal finance · Web, iPhone and Android',
+        cat: 'Personal finance · Web and iPhone',
         name: 'Financy',
-        desc: 'Personal finance tracker that runs on the web, on iPhone as a PWA and natively on Android, synced in real time, with Nubank and Mercado Pago transactions flowing in on their own through Open Finance.',
+        desc: 'Personal finance tracker that runs on the web and on iPhone, as a PWA or a native app, synced in real time, with Nubank and Mercado Pago transactions flowing in on their own through Open Finance.',
         highlights: [
-          'Floating 6-step quick-entry pop-up, opened from Android Quick Settings, written in Kotlin',
+          '6-step quick entry opened from an iPhone shortcut or a link, plus an Órbita bridge that categorizes Apple Pay purchases',
           'Hourly bank import with GitHub Actions that never duplicates or overwrites manual edits',
           'Cards with limit and bill, installments, recurring entries, monthly category analysis and AI-assisted planning',
         ],
-        tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Kotlin'],
+        tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Open Finance'],
         link: { label: 'See it live', href: 'https://financy-vert.vercel.app' },
       },
       {
@@ -71,11 +71,11 @@ export const en: Dict = {
         name: 'HypeApp',
         desc: 'A crowd-sourced app that shows, in real time, the hype of each bar in Porto Alegre’s Cidade Baixa before you leave home, rated 0 to 10 by people who are already there.',
         highlights: [
-          'Heat map with 3D buildings and a list that re-ranks itself, with a "Most hyped now" badge',
+          'Live heat map and a list that re-ranks itself, with a "Most hyped now" badge',
           'Hype score built from the average of recent ratings, limited to one every 30 minutes against abuse',
           'Points, levels and a store of avatars, frames and titles for people who keep the map alive',
         ],
-        tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Google Maps'],
+        tech: ['React Native', 'Expo Router', 'TypeScript', 'Firebase', 'Apple Maps'],
         link: { label: 'See the code', href: 'https://github.com/GabrielPMachado/HypeApp-Project' },
       },
       {
