@@ -36,8 +36,9 @@ export const en: Dict = {
   projects: {
     tag: 'Selected work · 05',
     title: ['The proof is', 'in what runs.'],
-    privateNote: 'Private code · illustrative demo',
-    demoNote: 'Illustrative demo',
+    privateNote: 'Private code · recorded from the real app',
+    demoNote: 'Recorded from the real app',
+    recLabel: 'Screen recording of',
     items: [
       {
         id: 'financy',
