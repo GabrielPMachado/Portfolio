@@ -32,7 +32,7 @@ export const pt = {
   },
   tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Kotlin', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'Google Maps', 'GitHub Actions'],
   projects: {
-    tag: 'Projetos selecionados · 04',
+    tag: 'Projetos selecionados · 05',
     title: ['A prova está', 'no que roda.'],
     privateNote: 'Código privado · demo ilustrativa',
     demoNote: 'Demo ilustrativa',
@@ -88,6 +88,19 @@ export const pt = {
         ],
         tech: ['TypeScript', 'Vite', 'Firebase', 'Firestore', 'Capacitor', 'GitHub Actions'],
         link: { label: 'Ver código', href: 'https://github.com/GabrielPMachado/BarDoDindo' },
+      },
+      {
+        id: 'orbita',
+        cat: 'Organização pessoal · iPhone',
+        name: 'Órbita',
+        desc: 'App de organização pessoal com módulos que ligam e desligam: tarefas, hábitos, finanças, saúde, estudos e mais, num visual noturno com Liquid Glass nativo do iOS 26. Tudo fica salvo no próprio aparelho.',
+        highlights: [
+          'Captura rápida em linguagem natural: "pagar boleto amanhã 15h #casa !alta" vira tarefa com data, tag e prioridade',
+          'Compras do Apple Pay entram sozinhas pelo app Atalhos e são conferidas com o extrato do banco via Open Finance (Meu Pluggy)',
+          'Widget de saldo na tela de bloqueio e modo foco com Live Activity na Dynamic Island',
+        ],
+        tech: ['React Native', 'Expo Router', 'TypeScript', 'Zustand', 'Reanimated', 'Swift', 'GitHub Actions'],
+        link: { label: 'Ver código', href: 'https://github.com/GabrielPMachado/Orbita' },
       },
     ],
   },

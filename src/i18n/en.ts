@@ -34,7 +34,7 @@ export const en: Dict = {
   },
   tech: ['TypeScript', 'React', 'React Native', 'Expo', 'Node.js', 'Firebase', 'Firestore', 'Kotlin', 'Capacitor', 'Vite', 'Tailwind', 'Python', 'Google Maps', 'GitHub Actions'],
   projects: {
-    tag: 'Selected work · 04',
+    tag: 'Selected work · 05',
     title: ['The proof is', 'in what runs.'],
     privateNote: 'Private code · illustrative demo',
     demoNote: 'Illustrative demo',
@@ -90,6 +90,19 @@ export const en: Dict = {
         ],
         tech: ['TypeScript', 'Vite', 'Firebase', 'Firestore', 'Capacitor', 'GitHub Actions'],
         link: { label: 'See the code', href: 'https://github.com/GabrielPMachado/BarDoDindo' },
+      },
+      {
+        id: 'orbita',
+        cat: 'Personal organizer · iPhone',
+        name: 'Órbita',
+        desc: 'Personal organizer app built from modules you switch on and off: tasks, habits, finances, health, studies and more, in a night-time look with native iOS 26 Liquid Glass. Everything stays on the device.',
+        highlights: [
+          'Natural-language quick capture: "pay bill tomorrow 3pm #home !high" becomes a task with date, tag and priority',
+          'Apple Pay purchases log themselves through the Shortcuts app and are matched against the bank statement via Open Finance (Meu Pluggy)',
+          'Balance widget on the lock screen and a focus mode with a Live Activity in the Dynamic Island',
+        ],
+        tech: ['React Native', 'Expo Router', 'TypeScript', 'Zustand', 'Reanimated', 'Swift', 'GitHub Actions'],
+        link: { label: 'See the code', href: 'https://github.com/GabrielPMachado/Orbita' },
       },
     ],
   },
