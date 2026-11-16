@@ -34,8 +34,9 @@ export const pt = {
   projects: {
     tag: 'Projetos selecionados · 05',
     title: ['A prova está', 'no que roda.'],
-    privateNote: 'Código privado · demo ilustrativa',
-    demoNote: 'Demo ilustrativa',
+    privateNote: 'Código privado · gravação do app real',
+    demoNote: 'Gravação do app real',
+    recLabel: 'Gravação do app',
     items: [
       {
         id: 'financy',
