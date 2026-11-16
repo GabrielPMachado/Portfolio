@@ -190,7 +190,7 @@ function shape(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 type Live = { j: Job; r: DOMRect; p: number };
 
 /** How many cursors build the site. */
-const CURSORS = { desktop: 40, mobile: 30 };
+const CURSORS = { desktop: 20, mobile: 15 };
 // how many of them are builders: each one takes a piece of its own (of the block being built, or of the next
 // blocks in line) and really builds it, so several pieces go up at the same time
 const BUILDERS = { desktop: 8, mobile: 6 };
