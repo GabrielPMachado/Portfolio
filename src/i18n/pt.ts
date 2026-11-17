@@ -49,7 +49,7 @@ export const pt = {
           'Cartões com limite e fatura, parcelas, recorrência, análise mensal por categoria e planejamento com IA',
         ],
         tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Open Finance'],
-        link: { label: 'Ver ao vivo', href: 'https://financy-vert.vercel.app' },
+        link: { label: 'Ver ao vivo', href: 'https://financy-2d.web.app' },
       },
       {
         id: 'vertice',

@@ -51,7 +51,7 @@ export const en: Dict = {
           'Cards with limit and bill, installments, recurring entries, monthly category analysis and AI-assisted planning',
         ],
         tech: ['React 19', 'TypeScript', 'Vite', 'Tailwind', 'Recharts', 'Firebase', 'Capacitor', 'Open Finance'],
-        link: { label: 'See it live', href: 'https://financy-vert.vercel.app' },
+        link: { label: 'See it live', href: 'https://financy-2d.web.app' },
       },
       {
         id: 'vertice',
