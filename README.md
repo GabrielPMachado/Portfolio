@@ -5,6 +5,7 @@
 **Site pessoal em Astro, React e Three.js, em português e inglês, com as gravações reais de cada projeto.**
 
 [![CI](https://github.com/GabrielPMachado/Portfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/GabrielPMachado/Portfolio/actions/workflows/ci.yml)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-green?style=flat-square)](LICENSE)
 ![Deploy](https://img.shields.io/badge/deploy-Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
 
 ![Astro](https://img.shields.io/badge/Astro_5-BC52EE?style=flat-square&logo=astro&logoColor=white)
@@ -144,7 +145,7 @@ Publicado na **Vercel** a cada push na `main`: framework Astro, sem variáveis d
 
 ## Licença
 
-Projeto pessoal de [Gabriel Pinto Machado](https://github.com/GabrielPMachado). Todos os direitos reservados.
+Projeto de [Gabriel Pinto Machado](https://github.com/GabrielPMachado). Distribuído sob a licença MIT: pode usar, copiar e modificar o código, desde que mantenha o aviso de copyright. Veja o arquivo [LICENSE](LICENSE).
 
 ---
 
@@ -187,6 +188,6 @@ All copy lives in `src/i18n/pt.ts` and `src/i18n/en.ts`.
 
 ### License
 
-Personal project by [Gabriel Pinto Machado](https://github.com/GabrielPMachado). All rights reserved.
+By [Gabriel Pinto Machado](https://github.com/GabrielPMachado). Released under the [MIT License](LICENSE).
 
 </details>
