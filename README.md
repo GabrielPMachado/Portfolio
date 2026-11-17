@@ -14,14 +14,14 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![CSS](https://img.shields.io/badge/CSS-1572B6?style=flat-square&logo=css3&logoColor=white)
 
-[**Ver o site**](https://portfolio-financy1.vercel.app) · [Arquitetura](#arquitetura) · [Como rodar](#como-rodar) · [English](#english)
+[**Ver o site**](https://gabrielpmachado.vercel.app) · [Arquitetura](#arquitetura) · [Como rodar](#como-rodar) · [English](#english)
 
 </div>
 
 <p align="center">
   <img src="docs/demo.gif" alt="Demonstração animada do projeto: topo do site, com a rede neural 3D e os cursores que montam a página" width="640" />
   <br />
-  <sub>Topo do site, com a rede neural 3D e os cursores que montam a página. Veja ao vivo em <a href="https://portfolio-financy1.vercel.app">portfolio-financy1.vercel.app</a>.</sub>
+  <sub>Topo do site, com a rede neural 3D e os cursores que montam a página. Veja ao vivo em <a href="https://gabrielpmachado.vercel.app">gabrielpmachado.vercel.app</a>.</sub>
 </p>
 
 ## Sumário
@@ -156,7 +156,7 @@ Projeto de [Gabriel Pinto Machado](https://github.com/GabrielPMachado). Distribu
 
 ### About
 
-Personal website built with Astro, React and Three.js, in Portuguese (`/`) and English (`/en/`), live at **https://portfolio-financy1.vercel.app**. Each project is shown with a real recording of the app in an iPhone frame.
+Personal website built with Astro, React and Three.js, in Portuguese (`/`) and English (`/en/`), live at **https://gabrielpmachado.vercel.app**. Each project is shown with a real recording of the app in an iPhone frame.
 
 ### Highlights
 
