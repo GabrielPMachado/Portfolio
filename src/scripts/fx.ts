@@ -95,6 +95,7 @@ type Boid = {
   clk: number; due: number; was: boolean; // how often this cursor clicks, and when its next click may land
   slot: number; of: number; // its own part of the piece (one cell of a grid), out of how many in its crew
   chief: number; // -1, or which builder it is (it builds pieces of its own, see BUILDERS)
+  name: string; // the agent's name tag ('' for the unnamed helpers)
 };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
@@ -198,6 +199,8 @@ const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x < 
 const band = (t: number, a: number, b: number) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const BLUE = '#1E8BFF', RED = '#FF4A4A';
+/** Name tags of the agents, one per specialty, like a real design team. */
+const AGENTS = ['Layout', 'Type', 'Grid', 'Copy', 'Image', 'Color', 'Spacing', 'Buttons', 'Motion', 'A11y', 'SEO', 'QA', 'Brand', 'Icons'];
 
 /** When each phase happens for each kind of piece: end of the drag, start and end of the reveal. */
 const PH: Record<AtomKind, { d: number; r0: number; r1: number }> = {
@@ -287,7 +290,7 @@ class Flock {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.62, 0.9), seed: Math.random() * Math.PI * 2, rot: 0,
         kind, q, crew, spd: rnd(0.85, 1.35), gain: rnd(0.7, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
-        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1, chief: -1,
+        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1, chief: -1, name: '',
       };
       this.place(b);
       this.boids.push(b);
@@ -303,6 +306,9 @@ class Flock {
     const leads = new Set(Array.from({ length: this.crews }, (_, c) => this.lead(c)));
     const pool = this.boids.filter((b) => !leads.has(b) && !(b.kind === 'sweep' && b.q === 0)).sort((a, b) => a.slot - b.slot || a.crew - b.crew);
     pool.slice(0, Math.round(n * BUILDERS)).forEach((b, k) => { b.chief = k; this.tasks.push(null); });
+    // the named agents: every builder and every crew lead wears a name tag, the rest of the swarm stays anonymous
+    const named = [...this.boids.filter((b) => b.chief >= 0), ...leads].filter((b, i, a) => a.indexOf(b) === i);
+    named.forEach((b, k) => { b.name = AGENTS[k % AGENTS.length]; });
   }
 
   addJob(el: HTMLElement, host: HTMLElement, start: number) {
@@ -768,6 +774,16 @@ class Flock {
     ctx.fillStyle = b.c; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
     ctx.restore();
+    if (b.name) {
+      // the name tag rides just below and to the right of the tip, in the agent's own color
+      ctx.save();
+      ctx.font = '600 10px "Geist Sans", Geist, ui-sans-serif, system-ui, sans-serif';
+      const tw = Math.ceil(ctx.measureText(b.name).width) + 12;
+      const lx = Math.round(b.x + 9 * b.s), ly = Math.round(b.y + 13 * b.s);
+      ctx.fillStyle = b.c; ctx.beginPath(); ctx.roundRect(lx, ly, tw, 16, 5); ctx.fill();
+      ctx.fillStyle = '#0b0c0e'; ctx.fillText(b.name, lx + 6, ly + 11.5);
+      ctx.restore();
+    }
   }
 
   drawJob(L: Live, now: number) {
@@ -901,6 +917,59 @@ class Flock {
   }
 }
 
+/* ---------- status pill: how many agents are on the page and how many layers are done ---------- */
+const PILL_TXT = lang === 'en-US'
+  ? { agents: 'agents', layers: 'layers', building: 'building', done: 'done' }
+  : { agents: 'agentes', layers: 'camadas', building: 'montando', done: 'pronto' };
+const pill = {
+  el: null as HTMLElement | null,
+  total: 0,
+  timer: 0,
+  hideAt: 0,
+  mount() {
+    if (this.el) return;
+    this.total = Array.from(document.querySelectorAll<HTMLElement>('[data-build]')).reduce((n, b) => n + atoms(b).length, 0);
+    const el = document.createElement('div');
+    el.className = 'fx-pill mono';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = `<span class="fx-pill-faces">${AGENTS.slice(0, 5).map((a, i) => `<i style="background:${COLORS[i]}">${a[0]}</i>`).join('')}</span>`
+      + `<b data-n></b><span data-l></span><span class="fx-pill-bar"><i data-p></i></span><span class="fx-pill-st" data-s></span>`;
+    document.body.appendChild(el);
+    this.el = el;
+    this.timer = window.setInterval(() => this.paint(), 120);
+    this.paint();
+  },
+  paint() {
+    const el = this.el, f = runner.flock;
+    if (!el) return;
+    let built = 0;
+    document.querySelectorAll<HTMLElement>('[data-build]').forEach((b) => {
+      if (b.classList.contains('is-built')) built += atoms(b).length;
+      else if (f) built += f.jobs.filter((j) => j.host === b && j.revealed).length;
+    });
+    built = Math.min(built, this.total);
+    const live = f && f.mode !== 'off' ? f.boids.filter((b) => !f.offscreen(b)).length : 0;
+    const all = built >= this.total;
+    el.querySelector('[data-n]')!.textContent = `${f ? f.boids.length : 0} ${PILL_TXT.agents}`;
+    el.querySelector('[data-l]')!.textContent = `${built} / ${this.total} ${PILL_TXT.layers}`;
+    (el.querySelector('[data-p]') as HTMLElement).style.width = `${(100 * built) / Math.max(1, this.total)}%`;
+    el.querySelector('[data-s]')!.textContent = all ? PILL_TXT.done : PILL_TXT.building;
+    el.classList.toggle('is-done', all);
+    // shown while agents are at work; once the page is complete it says so for a moment, then leaves for good
+    const now = performance.now();
+    if (all && !this.hideAt) this.hideAt = now + 2600;
+    const show = fxOn() && (live > 0 || (all && now < this.hideAt));
+    el.classList.toggle('is-on', show);
+    if (all && now >= this.hideAt) this.unmount();
+  },
+  unmount() {
+    clearInterval(this.timer);
+    const el = this.el;
+    this.el = null;
+    if (el) { el.classList.remove('is-on'); setTimeout(() => el.remove(), 400); }
+  },
+};
+
 /* ---------- runner: one block at a time, in page order ---------- */
 // The flock never leaves a block half done: a block that enters the screen while another is
 // being built waits in line, and starts only when the current one is finished.
@@ -986,6 +1055,7 @@ function finishAll() {
   runner.busy = false;
   runner.flock?.stop();
   root.classList.remove('fx-run');
+  pill.unmount();
 }
 
 let io: IntersectionObserver | null = null;
@@ -1017,6 +1087,7 @@ function start() {
       });
     });
   }, { passive: true });
+  pill.mount();
   autoScroll();
 }
 

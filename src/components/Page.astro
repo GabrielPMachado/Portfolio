@@ -1,10 +1,6 @@
 ---
 import type { Dict } from '../i18n/pt';
 import NeuralNet from './NeuralNet.tsx';
-import FinancyDemo from './demos/FinancyDemo.tsx';
-import VerticeDemo from './demos/VerticeDemo.tsx';
-import HypeDemo from './demos/HypeDemo.tsx';
-import DindoDemo from './demos/DindoDemo.tsx';
 import '../styles/page.css';
 
 interface Props { t: Dict }
@@ -114,10 +110,14 @@ const links = [
               </div>
               <div class="case-visual sel-host" data-build>
                 <div class="grid-bg small" aria-hidden="true"></div>
-                {p.id === 'financy' && <FinancyDemo client:visible lang={code} />}
-                {p.id === 'vertice' && <VerticeDemo client:visible lang={code} />}
-                {p.id === 'hype' && <HypeDemo client:visible lang={code} />}
-                {p.id === 'dindo' && <DindoDemo client:visible lang={code} />}
+                <div class="demo">
+                  <div class="phone">
+                    <video class="app-rec" autoplay muted loop playsinline preload="metadata" poster={`/apps/v3/${p.id}.jpg`} aria-label={`${t.projects.recLabel} ${p.name}`}>
+                      <source src={`/apps/v3/${p.id}.webm`} type="video/webm" />
+                      <source src={`/apps/v3/${p.id}.mp4`} type="video/mp4" />
+                    </video>
+                  </div>
+                </div>
                 <span class="demo-note mono">{t.projects.demoNote}</span>
                 <span class="sel-box" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></span>
               </div>
@@ -180,3 +180,15 @@ const links = [
     <span class="mono">{t.footer.made}</span>
   </div>
 </footer>
+
+<script>
+  // app recordings: play only while on screen, never with reduced motion
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll<HTMLVideoElement>('video.app-rec').forEach((v) => {
+    if (still) { v.removeAttribute('autoplay'); v.pause(); return; }
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) v.play().catch(() => {});
+      else v.pause();
+    }, { threshold: 0.3 }).observe(v);
+  });
+</script>
