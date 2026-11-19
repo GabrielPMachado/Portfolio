@@ -96,7 +96,13 @@ type Boid = {
   slot: number; of: number; // its own part of the piece (one cell of a grid), out of how many in its crew
   chief: number; // -1, or which builder it is (it builds pieces of its own, see BUILDERS)
   name: string; // the agent's name tag ('' for the unnamed helpers)
+  mv: Move | null; // the reach it is making now (a hand moves in planned strokes, not frame by frame)
+  ibeam: boolean; // over text it is typing: the pointer turns into a text cursor
+  ltx: number; lty: number; // its target last frame, to tell a jump from a drift
 };
+/** One stroke of the hand: a slightly curved path with a smooth start and stop, aimed a little past or short
+ *  of the target, then a small correction stroke onto it (how people actually move a mouse). */
+type Move = { x0: number; y0: number; x1: number; y1: number; cx: number; cy: number; tx: number; ty: number; t0: number; dur: number; fix: boolean };
 type Job = {
   seq: number; el: HTMLElement; host: HTMLElement; kind: AtomKind;
   start: number; dur: number; revealed: boolean; built: boolean; lines: number; lh: number;
@@ -105,6 +111,8 @@ type Job = {
   nb: number; // not before: a piece starts only when its cursor has arrived (start stays Infinity until then)
   pre: number; // how far it was built ahead of its turn: sketched by helpers (outline only) or built by a builder
   owner: number; // the builder working on it, or -1
+  cad?: number[]; // typing rhythm: when each character lands, from 0 to 1 over the reveal
+  per?: number[]; // characters on each line
 };
 /** A shape measured from the real layout, relative to the piece's top-left. rad < 0 marks a text bar. */
 type Box = { x: number; y: number; w: number; h: number; rad: number[]; fill: boolean; text?: boolean; col?: string; media?: boolean };
@@ -265,6 +273,7 @@ class Flock {
   sketching: HTMLElement[] = []; // blocks in line, on screen, that helpers can sketch
   helped = new Map<HTMLElement, number>(); // last time a helper was working on a block in line
   lastT = 0;
+  prevFrame = 0;
   tasks: (Job | null)[] = []; // the piece each builder is on
   seq = 0;
 
@@ -290,7 +299,7 @@ class Flock {
         x: 0, y: 0, vx: 0, vy: 0, c: COLORS[i % COLORS.length], s: rnd(0.62, 0.9), seed: Math.random() * Math.PI * 2, rot: 0,
         kind, q, crew, spd: rnd(0.85, 1.35), gain: rnd(0.7, 1.35), lag: rnd(0, 0.05),
         enterAt: 0, ex: 0, ey: 0, hx: 0.5, hy: 0.5, hopUntil: 0, insp: false, clicked: true, clickAt: -1e9, cx: 0, cy: 0,
-        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1, chief: -1, name: '',
+        clk: Math.random() < 0.35 ? rnd(0.25, 0.6) : 0, due: 0, was: false, slot: 0, of: 1, chief: -1, name: '', mv: null, ibeam: false, ltx: NaN, lty: NaN,
       };
       this.place(b);
       this.boids.push(b);
@@ -336,7 +345,7 @@ class Flock {
     const parts = kind === 'visual' ? partsOf(el, r) : [];
     const own = paints(el);
     const lines = ln.length ? Math.min(14, ln.length) : Math.max(1, Math.min(10, Math.round(r.height / lh)));
-    const dur = kind === 'visual' ? 1900 : kind === 'small' ? 750 : kind === 'title' ? 1150 : Math.min(2200, 800 + lines * 260);
+    const dur = kind === 'visual' ? 2200 : kind === 'small' ? 850 : kind === 'title' ? 1300 : Math.min(3000, 950 + lines * 340);
     return { seq: -1, el, host, kind, start: Infinity, nb: start, dur, pre: 0, owner: -1, revealed: false, built: false, lines, lh, rad: radii(el, r.width, r.height), ln, parts, fs, shell: own.fill || own.line, col: own.col };
   }
 
@@ -397,7 +406,7 @@ class Flock {
           this.drafts.get(t.host)!.forEach((d) => { if (d.pre < PH[d.kind].r0) d.el.classList.add('atom-wait'); });
         }
         const [px, py] = this.chiefPoint(t);
-        if (Math.hypot(b.x - px, b.y - py) < 30) t.pre = Math.min(1, t.pre + dt / t.dur);
+        if (Math.hypot(b.x - px, b.y - py) < 40) t.pre = Math.min(1, t.pre + dt / t.dur);
       }
       this.tasks[k] = t;
     });
@@ -492,9 +501,33 @@ class Flock {
     return [r.left + r.width / 2 - w / 2 + w * b.hx, r.top + r.height / 2 - h / 2 + h * b.hy];
   }
 
+  /** How far the typing is, in lines (2.5 = halfway through the third line). It moves one character at a
+   *  time, with a human rhythm: uneven keystrokes, a beat after each word, a longer one now and then. */
+  typed(L: Live): number {
+    const { j } = L, v = band(L.p, PH.text.r0, PH.text.r1);
+    if (!j.cad) {
+      const per = Array.from({ length: j.lines }, (_, k) => Math.max(6, Math.round((j.ln[k]?.w ?? L.r.width) / (j.fs * 0.5))));
+      const gaps: number[] = [];
+      per.forEach((n) => { for (let c = 0; c < n; c++) gaps.push(rnd(0.6, 1.4) * (c > 0 && Math.random() < 0.17 ? 2.2 : 1) * (Math.random() < 0.03 ? 4 : 1)); gaps.push(2.5); });
+      const sum = gaps.reduce((a, g) => a + g, 0);
+      let acc = 0;
+      j.cad = gaps.map((g) => (acc += g) / sum);
+      j.per = per;
+    }
+    let n = 0;
+    while (n < j.cad.length && j.cad[n] <= v) n++;
+    if (v >= 1) return j.lines;
+    for (let k = 0; k < j.per!.length; k++) {
+      if (n <= j.per![k]) return k + n / j.per![k];
+      n -= j.per![k] + 1; // the line break takes a beat too
+      if (n < 0) return k + 1;
+    }
+    return j.lines;
+  }
+
   caret(L: Live): [number, number] {
-    const { r, p, j } = L, ph = PH.text;
-    const pos = band(p, ph.r0, ph.r1) * j.lines;
+    const { r, j } = L;
+    const pos = Math.min(j.lines - 1e-3, this.typed(L));
     const k = Math.min(j.lines - 1, Math.floor(pos));
     const b = j.ln[k];
     if (b) return [r.left + b.x + b.w * Math.min(1, pos - k), r.top + b.y];
@@ -520,7 +553,7 @@ class Flock {
     if (!j) return;
     const b = this.lead(j.seq % this.crews);
     const r = j.el.getBoundingClientRect();
-    const arrived = Math.hypot(b.x - r.left, b.y - r.top) < 14 && now >= b.enterAt;
+    const arrived = Math.hypot(b.x - r.left, b.y - r.top) < 34 && now >= b.enterAt;
     j.since ??= now;
     // safety net: never wait forever (cursor off screen, piece far away)
     if (arrived || now - j.since > 3500) j.start = now - j.pre * j.dur;
@@ -542,7 +575,8 @@ class Flock {
         if (j.kind === 'text') {
           if (p < ph.r0) return [r.left - 6, r.top + 4];
           const [cx, cy] = this.caret(L);
-          return [cx + 3, cy + j.lh * 0.9];
+          b.ibeam = true;
+          return [cx + 10, cy + j.lh * 0.15];
         }
         if (j.kind === 'title') return [r.left + r.width * (0.3 + 0.6 * band(p, ph.r0, ph.r1)) + wob * 6, r.top + r.height * (0.55 + 0.15 * Math.sin(t * 1.6 + b.seed))];
         return [r.left + r.width * ease(band(p, ph.r0, ph.r1)), r.bottom - 6 + wob * 4];
@@ -607,7 +641,8 @@ class Flock {
       el.style.setProperty('--gy', `${(k * rnd(3, 9)).toFixed(1)}px`);
       el.style.opacity = k > 0.5 && Math.random() < 0.25 ? '0.35' : '1';
     } else if (j.kind === 'text') {
-      const pos = v * j.lines, k = Math.min(j.lines - 1, Math.floor(pos));
+      const pos = Math.min(j.lines - 1e-3, this.typed(L)), k = Math.min(j.lines - 1, Math.floor(pos));
+      void v;
       const b = j.ln[k];
       const y0 = b ? b.y : k * j.lh, y1 = b ? b.y + b.h : y0 + j.lh;
       const x = b ? `${(b.x + b.w * (pos - k)).toFixed(1)}px` : `${((pos - k) * 100).toFixed(1)}%`;
@@ -620,6 +655,8 @@ class Flock {
 
   frame = (now: number) => {
     this.raf = 0;
+    const fdt = Math.min(0.05, Math.max(0.001, (now - (this.prevFrame || now - 16)) / 1000));
+    this.prevFrame = now;
     const { ctx } = this;
     ctx.clearRect(0, 0, this.w, this.h);
     const t = (now - this.modeStart) / 1000;
@@ -651,6 +688,7 @@ class Flock {
       if (now < b.enterAt) return; // still waiting off screen for its turn to come in
       b.was = b.insp; // inspecting last frame?
       b.insp = false;
+      b.ibeam = false;
       let tx: number, ty: number;
       const wait = this.mode !== 'orbit' ? this.pending(now) : null;
       const leading = !!wait && b === this.lead(wait.seq % this.crews);
@@ -659,6 +697,7 @@ class Flock {
       if (task) {
         // a builder on its own piece: on its work point, nowhere else
         [tx, ty] = this.chiefPoint(task);
+        if (task.kind === 'text' && task.pre >= PH.text.r0) { b.ibeam = true; tx += 8; ty -= task.lh * 0.5; }
         glue = Math.hypot(tx - b.x, ty - b.y) < 40;
       } else if (leading) {
         // the lead flies to the top-left corner of the next piece; the piece only starts once it is there
@@ -696,28 +735,16 @@ class Flock {
       } else {
         [tx, ty] = [b.ex, b.ey];
       }
-      const dx = tx - b.x, dy = ty - b.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      // glide: ease toward the target, slowing down smoothly as it gets close
-      const max = (this.mode === 'leave' ? 9 + t * 4 : leading || task ? 16 : 11) * b.spd;
-      const speed = Math.min(max, dist * 0.09);
-      let ax = (dx / dist) * speed - b.vx, ay = (dy / dist) * speed - b.vy;
-      // the lead and the cursors at work hold their point: they are not pushed around by the others
+      // the others keep a little room around a cursor that is not at work, so they never sit on top of each other
       for (let o = 0; !leading && !glue && o < this.boids.length; o += 3) {
         const n = this.boids[(i + o + 1) % this.boids.length];
         const sx = b.x - n.x, sy = b.y - n.y, sd = sx * sx + sy * sy;
-        if (sd > 0 && sd < 160) { ax += (sx / sd) * 4; ay += (sy / sd) * 4; }
+        if (sd > 0 && sd < 220) { tx += (sx / Math.sqrt(sd)) * 6; ty += (sy / Math.sqrt(sd)) * 6; }
       }
-      const g = 0.1 + 0.04 * b.gain;
-      if (glue && dist < 40) {
-        // on the job: follow the work point closely instead of flying around it
-        const nx = b.x + dx * 0.3, ny = b.y + dy * 0.3;
-        b.vx = nx - b.x; b.vy = ny - b.y; b.x = nx; b.y = ny;
-      } else {
-        b.vx += ax * g; b.vy += ay * g;
-        b.x += b.vx; b.y += b.vy;
-      }
+      const dist = Math.hypot(tx - b.x, ty - b.y);
+      this.steer(b, tx, ty, now, fdt, glue || leading || !!task, this.mode === 'leave');
       const v = Math.hypot(b.vx, b.vy);
+      void v;
       // at most one click starts every ~180 ms in the whole flock: never a row of clicks at once
       if (b.insp && !b.clicked && dist < 6 && now >= b.due && now - this.lastClick > 180) {
         b.clicked = true; b.clickAt = now; b.cx = b.x; b.cy = b.y; this.lastClick = now;
@@ -737,6 +764,54 @@ class Flock {
     }
     this.raf = requestAnimationFrame(this.frame);
   };
+
+  /** Moves a cursor like a hand on a mouse. A target that jumps starts a new stroke: its length sets its time
+   *  (Fitts: far targets take longer, but not proportionally), it bows a little to one side, starts and stops
+   *  smoothly (minimum jerk) and lands slightly off, so a short correction stroke follows. A target that only
+   *  drifts (the caret while typing, the corner of a box being dragged) is tracked with a soft spring instead. */
+  steer(b: Boid, tx: number, ty: number, now: number, dt: number, working: boolean, leaving: boolean) {
+    // a jump of the target (a new spot, the next piece) starts a new stroke; a drift (the page scrolling, the caret
+    // typing on, the box corner being dragged) carries the stroke along with it, so the hand never starts over
+    const m = b.mv;
+    const jump = !(Math.hypot(tx - b.ltx, ty - b.lty) < 25);
+    if (m && !jump) { m.x1 += tx - m.tx; m.y1 += ty - m.ty; m.cx += tx - m.tx; m.cy += ty - m.ty; m.tx = tx; m.ty = ty; }
+    b.ltx = tx; b.lty = ty;
+    const gap = Math.hypot(tx - b.x, ty - b.y);
+    if ((jump || !m) && gap > (working ? 34 : 14)) {
+      const d = gap, ux = (tx - b.x) / d, uy = (ty - b.y) / d;
+      // where the hand actually aims: a bit long or short along the way, a bit off to the side
+      const along = leaving ? 0 : d * rnd(-0.03, 0.07), side = leaving ? 0 : d * rnd(-0.025, 0.025);
+      const ax = tx + ux * along - uy * side, ay = ty + uy * along + ux * side;
+      // the path bows to one side, as a wrist turning around the elbow does
+      const bow = d * rnd(0.06, 0.16) * (Math.random() < 0.5 ? -1 : 1);
+      const dur = (leaving ? 0.55 : 0.26 + 0.1 * Math.log2(1 + d / 18)) * (1.25 - 0.25 * b.spd) * 1000;
+      b.mv = { x0: b.x, y0: b.y, x1: ax, y1: ay, cx: (b.x + ax) / 2 - uy * bow, cy: (b.y + ay) / 2 + ux * bow, tx, ty, t0: now, dur, fix: !leaving && d > 60 };
+    }
+    const mv = b.mv;
+    const px = b.x, py = b.y;
+    if (mv && now - mv.t0 < mv.dur) {
+      const k = Math.min(1, (now - mv.t0) / mv.dur), e = k * k * k * (10 - 15 * k + 6 * k * k), q = 1 - e;
+      b.x = q * q * mv.x0 + 2 * q * e * mv.cx + e * e * mv.x1;
+      b.y = q * q * mv.y0 + 2 * q * e * mv.cy + e * e * mv.y1;
+    } else {
+      if (mv && mv.fix) {
+        // the stroke landed: a short, quick correction onto the real point
+        const d = Math.hypot(tx - b.x, ty - b.y);
+        if (d > 1.5) b.mv = { x0: b.x, y0: b.y, x1: tx, y1: ty, cx: (b.x + tx) / 2, cy: (b.y + ty) / 2, tx, ty, t0: now, dur: 150 + d * 4, fix: false };
+        else mv.fix = false;
+      }
+      if (!b.mv || now - b.mv.t0 >= b.mv.dur) {
+        // tracking: a critically damped spring, quick enough to stay on a moving caret, never a jump
+        const w = 2 / (working ? 0.09 : 0.22), x = w * dt, f = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+        const ex = b.x - tx, ey = b.y - ty;
+        const ix = (b.vx + w * ex) * dt, iy = (b.vy + w * ey) * dt;
+        b.vx = (b.vx - w * ix) * f; b.vy = (b.vy - w * iy) * f;
+        b.x = tx + (ex + ix) * f; b.y = ty + (ey + iy) * f;
+        return;
+      }
+    }
+    b.vx = (b.x - px) / dt; b.vy = (b.y - py) / dt;
+  }
 
   drawLoader(t: number) {
     const { ctx } = this, { x, y } = this.center;
@@ -770,10 +845,28 @@ class Flock {
     void v;
     ctx.save();
     ctx.translate(b.x, b.y); ctx.scale(b.s, b.s);
+    if (b.ibeam) {
+      // over text being typed: the text cursor, centered on its point like the real one
+      ctx.beginPath();
+      ctx.moveTo(-3.5, -8); ctx.lineTo(-1, -8); ctx.lineTo(0, -7); ctx.lineTo(1, -8); ctx.lineTo(3.5, -8);
+      ctx.moveTo(0, -7); ctx.lineTo(0, 7);
+      ctx.moveTo(-3.5, 8); ctx.lineTo(-1, 8); ctx.lineTo(0, 7); ctx.lineTo(1, 8); ctx.lineTo(3.5, 8);
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 3.2; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = b.c; ctx.stroke();
+      ctx.restore();
+      this.drawTag(b);
+      return;
+    }
     shape();
     ctx.fillStyle = b.c; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
     ctx.restore();
+    this.drawTag(b);
+  }
+
+  drawTag(b: Boid) {
+    const { ctx } = this;
     if (b.name) {
       // the name tag rides just below and to the right of the tip, in the agent's own color
       ctx.save();
@@ -878,9 +971,9 @@ class Flock {
         ctx.fillStyle = j.kind === 'title' ? 'rgba(90,96,108,.8)' : 'rgba(52,56,64,.95)';
         ctx.fillRect(from, r.top + b.y + (b.h - bh) / 2, len, bh);
       }
-      if (j.kind === 'text' && p > ph.r0 && p < ph.r1 && Math.floor(now / 260) % 2 === 0) {
+      if (j.kind === 'text' && p > ph.r0 && p < ph.r1) { // a caret does not blink while someone types
         const [cx, cy] = this.caret(L);
-        const b = j.ln[Math.min(j.lines - 1, Math.floor(band(p, ph.r0, ph.r1) * j.lines))];
+        const b = j.ln[Math.min(j.lines - 1, Math.floor(this.typed(L)))];
         const ch = b ? b.h : j.lh;
         ctx.fillStyle = BLUE; ctx.fillRect(Math.round(cx), cy + ch * 0.12, 2, ch * 0.76);
       }
