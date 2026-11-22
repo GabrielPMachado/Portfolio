@@ -41,27 +41,6 @@ document.querySelectorAll<HTMLElement>('.sel-host').forEach((host) => {
   host.addEventListener('focusin', update);
 });
 
-/* ---------- text scramble ---------- */
-const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&/<>=+*';
-function scramble(el: HTMLElement, duration = 650) {
-  const original = el.dataset.text ?? el.textContent ?? '';
-  el.dataset.text = original;
-  const start = performance.now();
-  const step = (now: number) => {
-    const p = Math.min(1, (now - start) / duration);
-    const reveal = Math.floor(p * original.length);
-    let out = '';
-    for (let i = 0; i < original.length; i++) {
-      const ch = original[i];
-      out += i < reveal || ch === ' ' ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0];
-    }
-    el.textContent = out;
-    if (p < 1) requestAnimationFrame(step);
-    else el.textContent = original;
-  };
-  requestAnimationFrame(step);
-}
-
 function cleanAtom(a: HTMLElement) {
   a.classList.remove('atom-wait', 'atom-glitch');
   ['clip-path', 'opacity', '--gx', '--gy'].forEach((p) => a.style.removeProperty(p));
