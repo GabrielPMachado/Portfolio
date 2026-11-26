@@ -42,6 +42,7 @@ document.querySelectorAll<HTMLElement>('.sel-host').forEach((host) => {
 });
 
 function cleanAtom(a: HTMLElement) {
+  a.classList.add('atom-on');
   a.classList.remove('atom-wait', 'atom-glitch');
   ['clip-path', 'opacity', '--gx', '--gy'].forEach((p) => a.style.removeProperty(p));
 }
@@ -611,7 +612,7 @@ class Flock {
   /** Apply the reveal of a piece to the real element, frame by frame. */
   reveal(L: Live) {
     const { j, p } = L, ph = PH[j.kind], el = j.el;
-    if (p >= ph.r0 && !j.revealed) { j.revealed = true; el.classList.remove('atom-wait'); if (j.kind === 'title') el.classList.add('atom-glitch'); }
+    if (p >= ph.r0 && !j.revealed) { j.revealed = true; el.classList.add('atom-on'); el.classList.remove('atom-wait'); if (j.kind === 'title') el.classList.add('atom-glitch'); }
     if (!j.revealed || j.built) return;
     const v = band(p, ph.r0, ph.r1);
     if (j.kind === 'title') {
@@ -1133,6 +1134,9 @@ function finishAll() {
 let io: IntersectionObserver | null = null;
 function start() {
   if (!fxOn()) { finishAll(); return; }
+  // every piece starts hidden and shows only once its cursor reveals it (or its block is finished), so no text
+  // can slip out ahead of the build, whatever path the block takes through the queue
+  document.querySelectorAll<HTMLElement>('[data-build]').forEach((b) => atoms(b).forEach((a) => a.classList.add('atom')));
   io = new IntersectionObserver((entries) => {
     entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
       .forEach((e) => {
